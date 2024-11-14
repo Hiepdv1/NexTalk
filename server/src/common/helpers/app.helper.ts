@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import * as msgpack from 'msgpackr';
 import { v4 as genuid } from 'uuid';
 
 export class AppHelperService {
@@ -37,5 +38,13 @@ export class AppHelperService {
   static isWithinMinutesAfter(timestamp: number, minutes: number): boolean {
     const now: number = Date.now();
     return now - timestamp < AppHelperService.minutesToMilliseconds(minutes);
+  }
+
+  static encodeWithMsgPack(data: any): Buffer {
+    return msgpack.encode(data);
+  }
+
+  static decodeWithMsgPack(buffer: Buffer): any {
+    return msgpack.decode(buffer);
   }
 }

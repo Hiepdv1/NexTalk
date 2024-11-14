@@ -32,6 +32,7 @@ import {
 import { MemberRole } from "@/interfaces/server.interface";
 import { RequestMemberKick, RequestRoleChange } from "@/API";
 import { useRouter } from "next/navigation";
+import { useData } from "../providers/data-provider";
 
 const roleIconMap = {
     GUEST: null,
@@ -44,6 +45,8 @@ interface IMemberModalProps {}
 const MemberModal = (props: IMemberModalProps) => {
     const router = useRouter();
     const { onOpen, isOpen, onClose, type, data } = useModal();
+    const { handleUpdateServer, handleRemoveMemberInServer, servers } =
+        useData();
     const [loadingId, setLoadingId] = useState("");
 
     const { members, profileId, serverId } = data;
@@ -60,10 +63,16 @@ const MemberModal = (props: IMemberModalProps) => {
                 },
             });
             const data = await RequestMemberKick(url);
+
+            if (data.statusCode !== 200) return;
+
+            const server = servers.find((server) => server.id === serverId);
+            if (!server) return;
+
             onOpen("Members", {
-                members: data?.members,
-                profileId: data?.profileId,
-                serverId: data?.id,
+                members: server.members,
+                profileId,
+                serverId,
             });
         } catch (err) {
             console.error(err);

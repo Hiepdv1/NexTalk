@@ -32,9 +32,14 @@ export class ConversationService {
     return conversation;
   }
 
-  public async createConversation(memberOneId: string, memberTwoId: string) {
+  public async createConversation(
+    memberOneId: string,
+    memberTwoId: string,
+    id?: string
+  ) {
     const conversation = await this.db.conversation.create({
       data: {
+        id,
         memberOneId,
         memberTwoId,
       },

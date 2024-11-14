@@ -25,10 +25,10 @@ import { AuthService } from '../../auth/services/auth.service';
 import { Request } from 'express';
 import { MemberRole, Prisma } from '@prisma/client';
 import { MemberRoleParamsDto } from '../dto/member.dto';
-import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { ChatGateway } from '../../socket/gateway/chat.gateway';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
+import { ServerCacheService } from '../services/serverCache.service';
 
 @Controller('/servers')
 export class ServerController {
@@ -38,9 +38,10 @@ export class ServerController {
     private readonly serverService: ServerService,
     private readonly authService: AuthService,
     private readonly cloudinaryService: CloudinaryService,
-    private readonly profileCacheService: ProfileCacheService,
     private readonly chatGateway: ChatGateway,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly serverCacheService: ServerCacheService,
+    private readonly chatgateway: ChatGateway
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
   }
@@ -59,19 +60,12 @@ export class ServerController {
         })
     )
     file: Express.Multer.File,
-    @Body() data: CreateServerInput,
-    @Req() req: Request
+    @Body() data: CreateServerInput
   ) {
-    const [existingUser, userJoinedServers] = await Promise.all([
-      this.authService.findUserById(data.profileId),
-      this.profileCacheService.getUserJoinedServers(req.userId),
-    ]);
+    const existingUser = await this.authService.findUserById(data.profileId);
 
     if (!existingUser)
       throw new BadRequestException('The userId does not exist');
-
-    if (!userJoinedServers)
-      throw new NotFoundException('User has not joined any servers');
 
     const uploadToCloud = (await this.cloudinaryService.UploadFile(
       file,
@@ -91,12 +85,7 @@ export class ServerController {
       profileId: existingUser.id,
     });
 
-    userJoinedServers.push(server);
-
-    await this.profileCacheService.setUserJoinedServersCache(
-      req.userId,
-      userJoinedServers
-    );
+    await this.serverCacheService.setAndOverrideServerCache(server.id, server);
 
     const encryptData = AppHelperService.encrypt(
       JSON.stringify(server),
@@ -191,10 +180,43 @@ export class ServerController {
       startedId: query.startingId,
     });
 
-    return {
-      data: data.servers,
-      length: data.count,
-    };
+    const caches = data.servers.map(async (server) => {
+      const members = server.members.map((member) => {
+        const { conversationsInitiated } = member;
+        const conversations = conversationsInitiated.map((con) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { directMessages, ...rest } = con;
+          return rest;
+        });
+        return { ...member, conversationsInitiated: conversations };
+      });
+
+      const channels = server.channels.map((channel) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { messages, ...rest } = channel;
+        return rest;
+      });
+
+      const serverData = {
+        ...server,
+        members,
+        channels,
+      };
+
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        serverData
+      );
+    });
+
+    await Promise.all(caches);
+
+    const encryptData = AppHelperService.encrypt(
+      JSON.stringify(data),
+      this.SECRET_KEY
+    );
+
+    return encryptData;
   }
 
   @Get('/:serverId')
@@ -299,9 +321,47 @@ export class ServerController {
     if (isMember)
       throw new BadRequestException('The user already exists in this server');
 
-    const addToMember = await this.serverService.AddMemberToServerByInviteCode(
-      inviteCode,
-      profile.id
+    const [addToMember, serverCache] = await Promise.all([
+      this.serverService.AddMemberToServerByInviteCode(inviteCode, profile.id),
+      this.serverCacheService.getServerCache(server.id),
+    ]);
+
+    const newMember = addToMember.members[0];
+
+    if (!serverCache) {
+      const server = await this.serverService.getServerById(addToMember.id);
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
+      );
+    } else {
+      const conversationsInitiated = newMember.conversationsInitiated.map(
+        (con) => {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { directMessages, ...rest } = con;
+          return rest;
+        }
+      );
+
+      const newMemberCache = {
+        ...newMember,
+        conversationsInitiated,
+      };
+      serverCache.members.push(newMemberCache);
+      await this.serverCacheService.setAndOverrideServerCache(
+        serverCache.id,
+        serverCache
+      );
+    }
+
+    const encryptData = AppHelperService.encrypt(
+      JSON.stringify(newMember),
+      this.SECRET_KEY
+    );
+
+    this.chatGateway.server.emit(
+      `server:${newMember.serverId}:members:update`,
+      encryptData
     );
 
     return addToMember;
@@ -334,23 +394,52 @@ export class ServerController {
     @Req() req: Request,
     @Query() query: MemberRoleParamsDto
   ) {
-    const userId = req.userId;
+    const [serverCache, profile] = await Promise.all([
+      this.serverCacheService.getServerCache(query.serverId),
+      this.authService.findUserById(req.userId),
+    ]);
 
-    const profile = await this.authService.findUserById(userId);
-    if (!profile) throw new NotFoundException('The user does not exist');
+    if (!profile) throw new NotFoundException('The User does not exist');
 
-    await this.serverService.DeleteMemberInServer(
-      query.serverId,
-      profile.id,
-      query.memberId
-    );
+    await Promise.all([
+      this.serverService.DeleteMemberInServer(
+        query.serverId,
+        profile.id,
+        query.memberId
+      ),
+    ]);
+
+    let server = serverCache;
+
+    if (!server) {
+      server = await this.serverService.getServerById(query.serverId);
+      if (!server) throw new NotFoundException('The server does not exist');
+      await this.serverCacheService.setAndOverrideServerCache(
+        query.serverId,
+        server
+      );
+    } else {
+      const members = server.members.filter(
+        (member) => member.id !== query.memberId
+      );
+
+      server.members = members;
+
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
+      );
+    }
 
     const encryptData = AppHelperService.encrypt(
       JSON.stringify({ id: query.memberId }),
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit('member:kick', encryptData);
+    this.chatGateway.server.emit(
+      `server:${server.id}:member:kick`,
+      encryptData
+    );
 
     return {
       statusCode: 200,
@@ -363,13 +452,55 @@ export class ServerController {
     @Param('serverId') serverId: string,
     @Req() req: Request
   ) {
-    const profile = await this.authService.findUserById(req.userId);
+    const [profile, serverCache] = await Promise.all([
+      this.authService.findUserById(req.userId),
+      this.serverCacheService.getServerCache(serverId),
+    ]);
 
     if (!profile) throw new NotFoundException('The user does not exist');
 
-    const server = await this.serverService.LeaveServer(serverId, profile.id);
+    let server = serverCache;
 
-    return server;
+    if (!server) {
+      server = await this.serverService.getServerById(serverId);
+      if (!server) throw new NotFoundException('The server does not exist');
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
+      );
+    }
+
+    const memberLeave = server.members.find(
+      (member) => member.profileId === profile.id
+    );
+
+    if (!memberLeave)
+      throw new NotFoundException('The member already not exists this server');
+
+    await this.serverService.LeaveServer(serverId, profile.id);
+
+    const members = server.members.filter(
+      (member) => member.profileId !== profile.id
+    );
+
+    server.members = members;
+
+    await this.serverCacheService.setAndOverrideServerCache(server.id, server);
+
+    const encryptData = AppHelperService.encrypt(
+      JSON.stringify({ id: memberLeave.id }),
+      this.SECRET_KEY
+    );
+
+    this.chatGateway.server.emit(
+      `server:${server.id}:member:leave`,
+      encryptData
+    );
+
+    return {
+      message: 'Successfully',
+      statusCode: 200,
+    };
   }
 
   @Get('/:serverId/details')

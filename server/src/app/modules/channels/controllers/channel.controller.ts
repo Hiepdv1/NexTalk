@@ -23,13 +23,14 @@ import { ServerService } from '../../server/services/server.service';
 import { DropboxService } from 'src/configs/storage/dropbox/dropbox.service';
 import { MessageService } from '../../socket/services/message.service';
 import { ChannelCacheService } from '../services/channelCache.service';
-import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { CloudinaryService } from 'src/configs/storage/cloudianry/cloudinary.service';
 import { v4 as genuuid } from 'uuid';
 import { MessageType } from '@prisma/client';
 import { ChatGateway } from '../../socket/gateway/chat.gateway';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
+import { ProfileCacheService } from '../../auth/services/profileCache.service';
+import { ServerCacheService } from '../../server/services/serverCache.service';
 
 @Controller('/channels')
 export class ChannelController {
@@ -45,7 +46,8 @@ export class ChannelController {
     private readonly profileCacheService: ProfileCacheService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly chatGateway: ChatGateway,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly serverCacheService: ServerCacheService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
   }
@@ -56,15 +58,18 @@ export class ChannelController {
     @Query('serverId') serverId: string,
     @Body() data: CreateChannelDto
   ) {
-    const [profile, userJoinedServers] = await Promise.all([
+    const [profile, serverCache] = await Promise.all([
       this.authService.findUserById(req.userId),
-      this.profileCacheService.getUserJoinedServers(req.userId),
+      this.serverCacheService.getServerCache(serverId),
     ]);
 
     if (!profile) throw new NotFoundException('The user does not exist');
 
-    if (!userJoinedServers) {
-      throw new NotFoundException('User has not joined any servers');
+    let server = serverCache;
+
+    if (!server) {
+      server = await this.serverService.getServerById(serverId);
+      if (!server) throw new NotFoundException('The server does not exist');
     }
 
     const serverUpdated = await this.channelService.CreateChannel(
@@ -75,18 +80,9 @@ export class ChannelController {
 
     const createdChannel = serverUpdated.channels[0];
 
-    const server = userJoinedServers.find((servver) => servver.id === serverId);
-
-    if (!server) throw new NotFoundException('The server is not found');
-
-    console.log('Channel Created: ', createdChannel);
-
     server.channels.push(createdChannel);
 
-    await this.profileCacheService.setUserJoinedServersCache(
-      req.userId,
-      userJoinedServers
-    );
+    await this.serverCacheService.setAndOverrideServerCache(serverId, server);
 
     const encryptData = AppHelperService.encrypt(
       JSON.stringify(createdChannel),

@@ -217,7 +217,7 @@ export const GetInviteCode = async (
 export const ReqeustAddMemberServer = async (
     inviteCode: string,
     options?: AxiosRequestConfig
-): Promise<ResFetchDataServer | undefined> => {
+) => {
     try {
         const res = await PatchRequest(
             `/servers/join/${inviteCode}`,

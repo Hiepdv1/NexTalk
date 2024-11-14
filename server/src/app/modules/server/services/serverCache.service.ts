@@ -1,21 +1,27 @@
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Cache } from 'cache-manager';
+import { Injectable } from '@nestjs/common';
+import { RedisCacheService } from 'src/providers/cache/redis.cache';
+import { ServerWithRelations } from '../../auth/entities/auth.entity';
 
 @Injectable()
 export class ServerCacheService {
-  private ttl: number;
+  private ttl: number = 3600 * 24; /// 1 days;
 
-  constructor(
-    @Inject(CACHE_MANAGER) private readonly cachesManager: Cache,
-    private readonly configService: ConfigService
-  ) {
-    this.ttl =
-      Number.parseInt(configService.get<string>('CACHE_ASIDE_TTL')) || 3600000; // 1 hour by miliseconds
+  constructor(private readonly cacheManager: RedisCacheService) {}
+
+  private getServerKey(serverId: string) {
+    return `SERVER:${serverId}`;
   }
 
-  private getProfileKey(profileId: string) {
-    return `PROFILE:${profileId}`;
+  public async setAndOverrideServerCache(
+    serverId: string,
+    data: ServerWithRelations
+  ) {
+    const keyCache = this.getServerKey(serverId);
+    await this.cacheManager.setCache(keyCache, data, this.ttl);
+  }
+
+  public async getServerCache(serverId: string) {
+    const keyCache = this.getServerKey(serverId);
+    return (await this.cacheManager.getCache(keyCache)) as ServerWithRelations;
   }
 }

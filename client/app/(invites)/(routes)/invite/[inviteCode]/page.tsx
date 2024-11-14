@@ -12,9 +12,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { IResponseServerData } from "@/interfaces";
-import { notFound, redirect } from "next/navigation";
+import { notFound, redirect, useRouter } from "next/navigation";
 import SkeletonCard from "@/components/loadding/SkeletonCard";
 import { Loader2 } from "lucide-react";
+import { useData } from "@/components/providers/data-provider";
 
 interface IInviteCodePageProps {
     params: {
@@ -24,9 +25,10 @@ interface IInviteCodePageProps {
 
 const InviteCodePage = ({ params }: IInviteCodePageProps) => {
     const [isLoading, setIsLoading] = useState(true);
+    const { handleUpdateServer } = useData();
     const [isLoadingAdded, setIsLoadingAdded] = useState(false);
+    const router = useRouter();
     const [isFetched, setIsFetched] = useState(false);
-    const [redirectPath, setRedirectPath] = useState<string | null>(null);
     const [serverData, setServerData] = useState<
         | { server: IResponseServerData; members: number; isMember: boolean }
         | undefined
@@ -56,13 +58,17 @@ const InviteCodePage = ({ params }: IInviteCodePageProps) => {
         try {
             setIsLoadingAdded(true);
             if (serverData.isMember) {
-                setRedirectPath(`/servers/${serverData.server.id}`);
+                router.push(`/servers/${serverData.server.id}`);
                 return;
             }
             const res = await ReqeustAddMemberServer(params.inviteCode);
-            if (res?.data) {
-                setRedirectPath(`/servers/${res.data.id}`);
-            }
+
+            const data = res?.data;
+            if (!data) return;
+
+            handleUpdateServer(data);
+
+            router.push(`/servers/${serverData.server.id}`);
         } catch (err) {
             console.error("Error adding member to server:", err);
         } finally {
@@ -71,8 +77,6 @@ const InviteCodePage = ({ params }: IInviteCodePageProps) => {
     };
 
     if (isLoading) return <SkeletonCard />;
-
-    if (redirectPath) return redirect(redirectPath);
 
     if (!serverData && isFetched) return notFound();
 

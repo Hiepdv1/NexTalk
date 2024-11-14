@@ -7,6 +7,8 @@ import { MemberService } from '../../members/services/member.service';
 
 @Controller('/conversations')
 export class ConversationController {
+  private readonly MESSAGE_BATCH: number = 12;
+
   constructor(
     private readonly authService: AuthService,
     private readonly conversationService: ConversationService,

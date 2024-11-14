@@ -18,9 +18,9 @@ const useQueryChat = ({ apiUrl, query, message }: IChatQueryProps) => {
     const params = useParams();
 
     const getServerAndChannel = () => {
-        const server = servers.find((s) => s.id === message.serverId);
+        const server = servers.find((s) => s.id === query.serverId);
         if (!server) return null;
-        const channel = server.channels.find((c) => c.id === message.channelId);
+        const channel = server.channels.find((c) => c.id === query.channelId);
         if (!channel) return null;
         return { server, channel };
     };
@@ -47,7 +47,7 @@ const useQueryChat = ({ apiUrl, query, message }: IChatQueryProps) => {
 
         return new Promise((resolve, reject) => {
             socket.once(
-                `messages:server:${message.serverId}:channel:${message.channelId}`,
+                `messages:server:${query.serverId}:channel:${query.channelId}`,
                 (response) => {
                     if (!response) {
                         reject(new Error("No response from server"));
@@ -59,8 +59,8 @@ const useQueryChat = ({ apiUrl, query, message }: IChatQueryProps) => {
                     );
 
                     setMessageArray({
-                        serverId: message.serverId,
-                        channelId: message.channelId,
+                        serverId: query.serverId,
+                        channelId: query.channelId,
                         messages,
                     });
 

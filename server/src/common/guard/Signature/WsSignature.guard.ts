@@ -126,7 +126,7 @@ export class WsSignatureGuard implements CanActivate {
     const { signature, clientId, nonce, timestamp, requestId, userAgent } =
       data.headers;
 
-    const validMethod = ['GET', 'POST'];
+    const validMethod = ['GET', 'POST', 'PATH', 'DELETE', 'PUT'];
 
     if (
       !signature ||

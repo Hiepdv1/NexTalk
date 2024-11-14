@@ -15,16 +15,20 @@ import {
   NotFoundException,
   UnauthorizedException,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { WsCombinedGuard } from 'src/common/guard/WsCombined.guard';
 import { AuthService } from '../../auth/services/auth.service';
 import { ServerService } from '../../server/services/server.service';
 import { ChannelService } from '../../channels/services/channel.service';
 import { MessageService } from '../services/message.service';
-import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ConversationService } from '../../conversation/services/conversation.service';
+import { DecryptDataPipe } from 'src/common/pipes/Decrypt-Data.pipe';
+import { ServerCacheService } from '../../server/services/serverCache.service';
+import { NotFoundError } from 'rxjs';
+import { ProfileCacheService } from '../../auth/services/profileCache.service';
 
 @WebSocketGateway({
   namespace: 'chat',
@@ -52,9 +56,10 @@ export class ChatGateway implements OnGatewayConnection {
     private readonly serverService: ServerService,
     private readonly channelService: ChannelService,
     private readonly messageService: MessageService,
-    private readonly profileCacheService: ProfileCacheService,
     private readonly configService: ConfigService,
-    private readonly conversationService: ConversationService
+    private readonly serverCacheService: ServerCacheService,
+    private readonly conversationService: ConversationService,
+    private readonly profileCacheService: ProfileCacheService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
   }
@@ -68,10 +73,6 @@ export class ChatGateway implements OnGatewayConnection {
         socket.disconnect();
         return;
       }
-
-      const clientId = genuuid();
-
-      socket.data.userId = clientId;
 
       this.socketService.handleConnection(socket);
       this.startPing(socket);
@@ -107,113 +108,89 @@ export class ChatGateway implements OnGatewayConnection {
   }
 
   @UseGuards(WsCombinedGuard)
+  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('send_message')
   public async handleSendChannelMessage(socket: Socket, values: any) {
-    try {
-      const decrypt = AppHelperService.decrypt(
-        values?.message,
-        this.SECRET_KEY
-      ) as any;
-      const { channelId, memberId, content, serverId, timestamp } =
-        JSON.parse(decrypt);
-      if (!channelId || !memberId || !content || !timestamp)
-        throw new BadRequestException(
-          'Channel ID, Member ID, timestamp, and content are required.'
-        );
+    const { channelId, memberId, content, serverId, timestamp } =
+      values.message;
 
-      const userJoinedServersCache =
-        await this.profileCacheService.getUserJoinedServers(socket.userId);
-
-      if (!userJoinedServersCache)
-        throw new NotFoundException("The user doesn't exist");
-
-      const server = userJoinedServersCache.find(
-        (server) => server.id === serverId
+    if (!channelId || !memberId || !content || !timestamp)
+      throw new BadRequestException(
+        'Channel ID, Member ID, timestamp, and content are required.'
       );
 
-      if (!server) throw new NotFoundException("The server doesn't exist");
+    let server = await this.serverCacheService.getServerCache(serverId);
 
-      const channel = server.channels.find(
-        (channel) => channel.id === channelId
+    if (!server) {
+      server = await this.serverService.getServerById(serverId);
+      if (!server) throw new NotFoundException('The server does not exist');
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
       );
-
-      const member = server.members.find((member) => member.id === memberId);
-
-      if (!channel) throw new NotFoundException("The channel doesn't exist");
-
-      const message = {
-        id: genuuid(),
-        content: content,
-        channelId: channelId,
-        memberId: memberId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      console.log('Send message on: ', `chat:${channelId}:messages`);
-
-      const encryptMessage = AppHelperService.encrypt(
-        JSON.stringify({
-          ...message,
-          member,
-          timestamp,
-        }),
-        this.SECRET_KEY
-      );
-
-      this.server.emit(`chat:${channelId}:messages`, encryptMessage);
-
-      this.messageService.CreateMessage(message).catch((error) => {
-        this.logger.error('Error saving message:', error);
-      });
-    } catch (error: any) {
-      if (error instanceof HttpException) {
-        socket.emit('error', { error });
-        return;
-      } else {
-        this.logger.error(
-          `Error Sending Message: ${error.message}`,
-          error.stack
-        );
-        socket.emit('error', { message: 'An unexpected error occurred.' });
-      }
     }
+
+    const channel = server.channels.find((channel) => channel.id === channelId);
+
+    const member = server.members.find((member) => member.id === memberId);
+
+    if (!channel) throw new NotFoundException("The channel doesn't exist");
+
+    const message = {
+      id: genuuid(),
+      content: content,
+      channelId: channelId,
+      memberId: memberId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const encryptMessage = AppHelperService.encrypt(
+      JSON.stringify({
+        ...message,
+        member,
+        timestamp,
+      }),
+      this.SECRET_KEY
+    );
+
+    this.server.emit(`chat:${channelId}:messages`, encryptMessage);
+
+    await this.messageService.CreateMessage(message).catch((error) => {
+      this.logger.error('Error saving message:', error);
+    });
   }
 
   @UseGuards(WsCombinedGuard)
+  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('message_modify')
   public async handleEditMessage(socket: Socket, values: any) {
     try {
-      const decrypt = AppHelperService.decrypt(
-        values?.message,
-        this.SECRET_KEY
-      ) as any;
       const { channelId, memberId, content, serverId, messageId, method } =
-        JSON.parse(decrypt);
+        values.message;
       if (!channelId || !memberId || !serverId || !method)
         throw new BadRequestException(
-          'Channel ID, Member ID, and content are required.'
+          'Channel ID, Member ID, Server ID, Message ID, Method and content are required.'
         );
 
-      const [userJoinedServersCache, message] = await Promise.all([
-        this.profileCacheService.getUserJoinedServers(socket.userId),
+      const [serverCache, message] = await Promise.all([
+        this.serverCacheService.getServerCache(serverId),
         this.messageService.getMessageById(messageId),
       ]);
 
-      if (!userJoinedServersCache) {
-        throw new NotFoundException('The user does not exist');
+      let server = serverCache;
+
+      if (!server) {
+        server = await this.serverService.getServerById(serverId);
+        if (!server) throw new NotFoundError('The server does not exist');
+        await this.serverCacheService.setAndOverrideServerCache(
+          serverId,
+          server
+        );
       }
 
       if (!message) {
         throw new NotFoundException('The messageId not found');
-      }
-
-      const server = userJoinedServersCache.find(
-        (server) => server.id === serverId
-      );
-
-      if (!server) {
-        throw new NotFoundException('The server does not exist');
       }
 
       const member = server.members.find((member) => member.id === memberId);
@@ -302,37 +279,31 @@ export class ChatGateway implements OnGatewayConnection {
   @SubscribeMessage('fetch:messages')
   public async fetchMessages(socket: Socket, values: any) {
     try {
-      const [profile, userJoinedServersCache] = await Promise.all([
-        this.profileCacheService.getProfileCache(socket.userId),
-        this.profileCacheService.getUserJoinedServers(socket.userId),
-      ]);
-
-      if (!profile || !userJoinedServersCache)
-        throw new NotFoundException('The userId does not exist');
-
-      const decrypt = JSON.parse(
-        AppHelperService.decrypt(values.message, this.SECRET_KEY)
-      );
-
-      const { cursor } = values?.query;
-      const { serverId, channelId } = decrypt;
+      const { cursor, serverId, channelId } = values?.query;
 
       if (!serverId || !channelId)
-        throw new BadRequestException('Channel ID, Server ID are required.');
+        throw new BadRequestException(
+          'The serverId and channelId are required'
+        );
 
-      const isExistingServer = userJoinedServersCache.find(
-        (server) => server.id === serverId
-      );
+      const serverCache =
+        await this.serverCacheService.getServerCache(serverId);
 
-      if (!isExistingServer)
-        throw new NotFoundException('The server does not exist');
+      let server = serverCache;
+      if (!server) {
+        server = await this.serverService.getServerById(serverId);
+        if (!server) throw new NotFoundError('The server does not exist');
+        await this.serverCacheService.setAndOverrideServerCache(
+          serverId,
+          server
+        );
+      }
 
-      const isExistingChannel = isExistingServer.channels.find(
+      const channel = server.channels.find(
         (channel) => channel.id === channelId
       );
 
-      if (!isExistingChannel)
-        throw new NotFoundException('The channel does not exist');
+      if (!channel) throw new NotFoundException('The channel does not exist');
 
       const messages = await this.messageService.getMessageChannel({
         take: this.MESSAGE_BATCH,
@@ -374,85 +345,106 @@ export class ChatGateway implements OnGatewayConnection {
   }
 
   @UseGuards(WsCombinedGuard)
+  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('fetch:conversation')
   public async fetchConversation(socket: Socket, values: any) {
-    try {
-      const [profile, userJoinedServers] = await Promise.all([
-        this.profileCacheService.getProfileCache(socket.userId),
-        this.profileCacheService.getUserJoinedServers(socket.userId),
-      ]);
+    const { memberTwoId, memberOneId, serverId } = values.message;
 
-      if (!profile) throw new NotFoundException('The user does not exist');
-
-      const decrypt = JSON.parse(
-        AppHelperService.decrypt(values.message, this.SECRET_KEY)
+    if (!memberTwoId || !memberOneId || !serverId)
+      throw new BadRequestException(
+        'The memberOne Id, Id memberTwo Id and serverId are required'
       );
 
-      const { memberTwoId, memberOneId, serverId } = decrypt;
+    let server = await this.serverCacheService.getServerCache(serverId);
 
-      if (!memberTwoId || !memberOneId || !serverId)
-        throw new BadRequestException(
-          'The memberOne Id, Id memberTwo Id and serverId are required'
-        );
+    if (!server) {
+      server = await this.serverService.getServerById(serverId);
+      if (!server) throw new NotFoundException('The user does not exist');
+      await this.serverCacheService.setAndOverrideServerCache(serverId, server);
+    }
 
-      const server = userJoinedServers.find((server) => server.id === serverId);
+    const memberOne = server.members.find(
+      (member) => member.id === memberOneId
+    );
 
-      if (!server)
-        throw new NotFoundException('The user does not exist this server');
+    if (!memberOne)
+      throw new NotFoundException('The memberOneId does not exist this server');
 
-      const memberOne = server.members.find(
-        (member) => member.id === memberOneId
-      );
+    const memberTwo = server.members.find(
+      (member) => member.id === memberTwoId
+    );
 
-      if (!memberOne)
-        throw new NotFoundException(
-          'The memberOneId does not exist this server'
-        );
+    if (!memberTwo)
+      throw new NotFoundException('The memberTwoId does not exist this server');
 
-      const memberTwo = server.members.find(
-        (member) => member.id === memberTwoId
-      );
+    const isExistConversation = memberOne.conversationsInitiated.find((con) => {
+      return con.memberOneId === memberOneId || con.memberOneId === memberTwoId;
+    });
 
-      if (!memberTwo)
-        throw new NotFoundException(
-          'The memberTwoId does not exist this server'
-        );
-
-      const conversation = {
-        memberOne,
-        memberTwo,
-      };
-
-      const encryptData = AppHelperService.encrypt(
-        JSON.stringify(conversation),
-        this.SECRET_KEY
-      );
-
+    if (isExistConversation) {
       const key = [memberOneId, memberTwoId];
-
       key.sort();
 
-      const roomKey = `conversation:${key.join('-')}`;
-
-      socket.join(roomKey);
-
-      this.server.to(roomKey).emit('conversation:data', encryptData);
-
-      this.conversationService.getOrCreateConversation(
-        memberOneId,
-        memberTwoId
+      const encryptData = AppHelperService.encrypt(
+        JSON.stringify({
+          ...isExistConversation,
+          memberOne,
+          memberTwo,
+        }),
+        this.SECRET_KEY
       );
-    } catch (error: any) {
-      if (error instanceof HttpException) {
-        socket.emit('error', { error });
-        return;
-      } else {
-        this.logger.error(
-          `Error Sending Message: ${error.message}`,
-          error.stack
-        );
-        socket.emit('error', { message: 'An unexpected error occurred.' });
-      }
+      this.server.emit(`conversation:${key.join('-')}`, encryptData);
+      return;
     }
+
+    const id = genuuid();
+
+    const conversation = {
+      id,
+      memberOneId: memberOne.id,
+      memberTwoId: memberTwo.id,
+      directMessages: [],
+    };
+
+    const encryptData = AppHelperService.encrypt(
+      JSON.stringify({
+        ...conversation,
+        memberOne: {
+          ...memberOne,
+          conversationsInitiated: [
+            ...memberOne.conversationsInitiated,
+            conversation,
+          ],
+        },
+        memberTwo: {
+          ...memberTwo,
+          conversationsInitiated: [
+            ...memberTwo.conversationsInitiated,
+            conversation,
+          ],
+        },
+      }),
+      this.SECRET_KEY
+    );
+
+    const key = [memberOneId, memberTwoId];
+
+    key.sort();
+
+    this.server.emit(`conversation:${key.join('-')}`, encryptData);
+
+    const conversationCache = {
+      id,
+      memberOneId,
+      memberTwoId,
+    };
+
+    memberOne.conversationsInitiated.push(conversationCache);
+    memberTwo.conversationsInitiated.push(conversationCache);
+
+    await Promise.all([
+      this.conversationService.createConversation(memberOneId, memberTwoId, id),
+      this.serverCacheService.setAndOverrideServerCache(serverId, server),
+    ]);
   }
 }

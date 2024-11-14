@@ -56,6 +56,7 @@ export class ServerService {
         members: {
           include: {
             profile: true,
+            conversationsInitiated: true,
           },
         },
       },
@@ -130,6 +131,12 @@ export class ServerService {
           members: {
             include: {
               profile: true,
+              conversationsInitiated: {
+                include: {
+                  directMessages: true,
+                },
+                take: 12,
+              },
             },
             orderBy: {
               createdAt: 'desc',
@@ -168,6 +175,24 @@ export class ServerService {
     });
 
     return firstServer;
+  }
+
+  public async getServerById(serverId: string) {
+    return await this.databaseService.server.findUnique({
+      where: {
+        id: serverId,
+      },
+      include: {
+        channels: true,
+        members: {
+          include: {
+            profile: true,
+            conversationsInitiated: true,
+          },
+          take: 12,
+        },
+      },
+    });
   }
 
   public async GetServerProfileById(serverId: string, profileId: string) {
@@ -347,7 +372,10 @@ export class ServerService {
     return updatedServer;
   }
 
-  async AddMemberToServerByInviteCode(inviteCode: string, profileId: string) {
+  public async AddMemberToServerByInviteCode(
+    inviteCode: string,
+    profileId: string
+  ) {
     const server = this.databaseService.server.update({
       where: {
         inviteCode,
@@ -359,6 +387,40 @@ export class ServerService {
               profileId,
             },
           ],
+        },
+      },
+      include: {
+        channels: {
+          include: {
+            messages: {
+              include: {
+                member: {
+                  include: {
+                    profile: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+              take: 12,
+            },
+          },
+        },
+        members: {
+          include: {
+            profile: true,
+            conversationsInitiated: {
+              include: {
+                directMessages: true,
+              },
+              take: 12,
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 12,
         },
       },
     });

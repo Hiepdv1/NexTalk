@@ -55,7 +55,7 @@ const ChatInput = ({
 
     const isLoading = form.formState.isLoading;
 
-    useEffect(() => {
+    const setupSocketListeners = () => {
         if (!socket) return;
 
         socket.on("ping", () => {
@@ -68,7 +68,12 @@ const ChatInput = ({
 
         return () => {
             socket.off("ping");
+            socket.off("error");
         };
+    };
+
+    useEffect(() => {
+        setupSocketListeners();
     }, [socket]);
 
     const onSubmit = (value: z.infer<typeof ChatInputSchema>) => {
@@ -112,27 +117,35 @@ const ChatInput = ({
         });
     };
 
-    const handleUpLoadfile = async (values: {
+    const handleIncomingMessage = (values: {
         file: File;
         pathFile: string;
+        timestamp: number;
     }) => {
-        if (!user || !sendMessage) return;
-
-        const file = values.file;
-        const timestamp = Date.now();
+        if (!user) return;
 
         if (channel && type === "conversation") {
             addPendingMessage({
                 channelId: channel.id,
-                message: file.name,
+                message: values.file.name,
                 name: `${user.firstName} ${user.lastName || ""}`,
                 role: member.role,
-                timestamp,
+                timestamp: values.timestamp,
                 userId: user.id,
                 userImage: user.imageUrl,
                 fileUrl: values.pathFile,
             });
         }
+    };
+
+    const handleUpLoadfile = async (values: {
+        file: File;
+        pathFile: string;
+    }) => {
+        const file = values.file;
+        const timestamp = Date.now();
+
+        handleIncomingMessage({ ...values, timestamp });
 
         const url = qs.stringifyUrl({
             url: apiUrl || "",

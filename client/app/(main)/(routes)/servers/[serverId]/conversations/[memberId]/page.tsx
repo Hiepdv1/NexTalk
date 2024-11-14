@@ -16,7 +16,6 @@ import { useSocket } from "@/components/providers/socket-provider";
 import { useSocketEvents } from "@/components/providers/socket-event-provider";
 import { decrypt } from "@/utility/app.utility";
 import { IConversation } from "@/interfaces";
-import ChatInputConversation from "@/components/chat/chat-input-conversation";
 
 interface IMemberIdPageProps {
     params: {
@@ -28,7 +27,7 @@ interface IMemberIdPageProps {
 const MemberIdPage = ({ params }: IMemberIdPageProps) => {
     const { profile, servers, handleAddConversation, conversations } =
         useData();
-    const { addListener, removeListener } = useSocketEvents();
+    const { addListener } = useSocketEvents();
     const { sendMessage } = useSocket();
 
     const server = servers.find((server) => server.id === params.serverId);
@@ -40,22 +39,25 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
 
     if (!currentMember) return;
 
+    const otherMember = server.members.find((m) => m.id === params.memberId);
+
+    if (!otherMember) return;
+
     const conversation = conversations.find((con) => {
         return (
-            con.memberOne.id === params.memberId ||
-            con.memberTwo.id === params.memberId
+            con.memberOneId === otherMember.id ||
+            con.memberTwoId === otherMember.id
         );
     });
 
-    useEffect(() => {
+    const handleGetConversation = (data: any) => {
+        const conversation = JSON.parse(decrypt(data)) as IConversation;
+        console.log(conversation);
+        handleAddConversation(conversation);
+    };
+
+    const handleFetchConversation = () => {
         if (!sendMessage) return;
-
-        const handleGetConversation = (data: any) => {
-            const conversation = JSON.parse(decrypt(data)) as IConversation;
-
-            handleAddConversation(conversation);
-        };
-
         const message = {
             memberOneId: currentMember.id,
             memberTwoId: params.memberId,
@@ -66,27 +68,24 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
             console.log("Fetch conversation");
             sendMessage("fetch:conversation", message, "GET", {});
         }
+    };
 
-        const memberIds = [message.memberOneId, message.memberTwoId];
+    useEffect(() => {
+        if (!sendMessage) return;
+
+        const memberIds = [currentMember.id, params.memberId];
 
         memberIds.sort();
 
-        addListener("conversation:data", handleGetConversation);
+        addListener(
+            `conversation:${memberIds.join("-")}`,
+            handleGetConversation
+        );
 
-        return () => {
-            removeListener(
-                `conversation:member:${currentMember.id}`,
-                handleGetConversation
-            );
-        };
+        handleFetchConversation();
     }, []);
 
     if (!conversation) return;
-
-    const { memberOne, memberTwo } = conversation;
-
-    const otherMember =
-        memberOne.id === params.memberId ? memberOne : memberTwo;
 
     return (
         <div className="bg-white dark:bg-[#313338] flex flex-col h-screen">
@@ -106,11 +105,12 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
                 type="Conversation"
                 paramValue=""
             />
-            <ChatInputConversation
+            <ChatInput
                 member={otherMember}
-                apiUrl=""
+                apiUrl="/conversations/messages/uploadFile"
                 name={otherMember.profile.name}
                 query={{}}
+                type="conversation"
             />
         </div>
     );

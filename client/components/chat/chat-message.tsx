@@ -1,12 +1,12 @@
 "use client";
-
 import { IChannel, IMessage, Member, MemberRole } from "@/interfaces";
 import ChatWelcome from "./chat-welcome";
 import { format } from "date-fns";
-import {
+import React, {
     ElementRef,
     Fragment,
     memo,
+    ReactNode,
     useEffect,
     useMemo,
     useRef,
@@ -30,11 +30,12 @@ interface IChatMessageProps {
     member: Member;
     chatId: string;
     apiUrl: string;
-    socketQuery: Record<string, string>;
+    socketQuery: Record<string, any>;
     paramKey: "channelId" | "conversationId";
     paramValue: string;
     type: "Channel" | "Conversation";
     channel?: IChannel;
+    message?: Record<string, any>;
 }
 
 const ChatMessage = ({
@@ -46,25 +47,23 @@ const ChatMessage = ({
     socketQuery,
     type,
     channel,
+    apiUrl,
+    message,
 }: IChatMessageProps) => {
     const { setMessage, handleDeleteMessage, handleEditMessage } = useData();
     const { addListener } = useSocketEvents();
     const { hasNextPage, fetchNextPage, isFetchingNextPage } = useQueryChat({
-        apiUrl:
-            type === "Channel"
-                ? "fetch:messages"
-                : "fetch:conversation:messages",
+        apiUrl,
         message: {
-            serverId: channel?.serverId,
-            channelId: channel?.id,
+            ...message,
         },
-        query: {},
+        query: {
+            ...socketQuery,
+        },
     });
 
     const chatRef = useRef<ElementRef<"div">>(null);
-
     const topMarkerRef = useRef<ElementRef<"div">>(null);
-
     const { pendingMessages, removePendingMessageByTimestamp } =
         usePendingMessages();
     const currentChannelMessage = pendingMessages.filter(
@@ -74,91 +73,67 @@ const ChatMessage = ({
 
     const [isAtTop, setIsAtTop] = useState(false);
 
-    useEffect(() => {
-        const top = chatRef.current?.scrollHeight;
-        if (top) {
-            chatRef.current?.scrollTo(0, top);
+    const messages = type === "Channel" ? channel?.messages : [];
+
+    const shouldShowChatWelcome = useMemo(() => {
+        if (!hasNextPage) return true;
+        if (type === "Channel" && (!channel || channel.messages.length <= 0))
+            return true;
+        return false;
+    }, [hasNextPage, channel, type]);
+
+    const handleIncomingMessage = (data: any) => {
+        const message = JSON.parse(decrypt(data));
+        removePendingMessageByTimestamp(message.timestamp);
+        if (type === "Channel" && channel) {
+            setMessage(channel.serverId, channel.id, message);
         }
-    }, [pendingMessages.length, channel?.messages.length]);
+    };
 
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    console.log(
-                        "Intersecting: ",
-                        entry.isIntersecting,
-                        entry.target
-                    );
-                    if (entry.isIntersecting) {
-                        setIsAtTop(true);
-                    } else {
-                        setIsAtTop(false);
-                    }
-                });
-            },
-            {
-                root: chatRef.current,
-                rootMargin: "80px 0px 0px 0px",
-                threshold: 1.0,
-            }
-        );
+    const handleOnEditMessage = (data: any) => {
+        const message = JSON.parse(decrypt(data));
+        handleEditMessage({
+            messageId: message.id,
+            channelId: message.channelId,
+            content: message.content,
+            serverId: socketQuery.serverId,
+            updatedAt: message.updatedAt,
+        });
+    };
 
-        const topObserverRef = topMarkerRef.current;
+    const handleOnDeleteMessage = (data: any) => {
+        const message = JSON.parse(decrypt(data)) as IMessage;
+        handleDeleteMessage({
+            messageId: message.id,
+            channelId: message.channelId,
+            content: message.content,
+            serverId: socketQuery.serverId,
+        });
+    };
 
-        if (topObserverRef) {
-            observer.observe(topObserverRef);
-        }
-
-        return () => {
-            if (topObserverRef) {
-                observer.unobserve(topObserverRef);
-            }
-        };
-    }, []);
-
-    useEffect(() => {
-        if (isAtTop) {
-            fetchNextPage();
-        }
-    }, [isAtTop, fetchNextPage]);
-
-    useEffect(() => {
-        if (!socket) return;
-        const handleMessage = (data: any) => {
-            const message = JSON.parse(decrypt(data));
-            removePendingMessageByTimestamp(message.timestamp);
-            if (type === "Channel" && channel) {
-                setMessage(channel.serverId, channel.id, message);
-            } else {
-            }
-        };
-
-        const handleOnEditMessage = (data: any) => {
-            const message = JSON.parse(decrypt(data));
-            handleEditMessage({
-                messageId: message.id,
-                channelId: message.channelId,
-                content: message.content,
-                serverId: socketQuery.serverId,
-                updatedAt: message.updatedAt,
+    const createScrollObserver = (options: {
+        root: HTMLElement | null;
+        rootMargin: string;
+        threshold: number;
+    }) => {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    setIsAtTop(true);
+                } else {
+                    setIsAtTop(false);
+                }
             });
-        };
+        }, options);
 
-        const handleOnDeleteMessage = (data: any) => {
-            const message = JSON.parse(decrypt(data)) as IMessage;
-            handleDeleteMessage({
-                messageId: message.id,
-                channelId: message.channelId,
-                content: message.content,
-                serverId: socketQuery.serverId,
-            });
-        };
+        return observer;
+    };
 
+    const setupSocketListeners = () => {
         if (type === "Channel" && channel) {
             addListener(
                 `chat:${socketQuery.channelId}:messages`,
-                handleMessage
+                handleIncomingMessage
             );
             addListener(
                 `channels:${channel.id}:message:update`,
@@ -168,28 +143,63 @@ const ChatMessage = ({
                 `channels:${channel.id}:message:delete`,
                 handleOnDeleteMessage
             );
-        } else {
         }
-    }, [socket, chatId]);
-
-    const shouldShowChatWelcome = () => {
-        if (!hasNextPage) return true;
-        if (type === "Channel" && (!channel || channel.messages.length <= 0))
-            return true;
-        // if (
-        //     type === "Conversation" &&
-        //     (!conversation || conversation.messages.length <= 0)
-        // )
-        //     return true;
-        return false;
     };
+
+    const initializeScrollObserver = (
+        chatRef: React.RefObject<HTMLDivElement>,
+        topMarkerRef: React.RefObject<HTMLDivElement>
+    ) => {
+        const observer = createScrollObserver({
+            root: chatRef.current,
+            rootMargin: "80px 0px 0px 0px",
+            threshold: 1.0,
+        });
+
+        const topObserverRef = topMarkerRef.current;
+        if (topObserverRef) {
+            observer.observe(topObserverRef);
+        }
+
+        return () => {
+            if (topObserverRef) {
+                observer.unobserve(topObserverRef);
+            }
+        };
+    };
+
+    useEffect(() => {
+        const cleanupObserver = initializeScrollObserver(chatRef, topMarkerRef);
+
+        return () => {
+            cleanupObserver();
+        };
+    }, []);
+
+    useEffect(() => {
+        const top = chatRef.current?.scrollHeight;
+        if (top) {
+            chatRef.current?.scrollTo(0, top);
+        }
+    }, [pendingMessages.length, channel?.messages.length]);
+
+    useEffect(() => {
+        if (isAtTop) {
+            fetchNextPage();
+        }
+    }, [isAtTop, fetchNextPage]);
+
+    useEffect(() => {
+        if (!socket) return;
+        setupSocketListeners();
+    }, [socket, chatId]);
 
     return (
         <div
             ref={chatRef}
             className="flex-1 flex flex-col pt-4 overflow-y-auto no-scrollbar"
         >
-            {shouldShowChatWelcome() && (
+            {shouldShowChatWelcome && (
                 <>
                     <div className="flex-1" />
                     <ChatWelcome name={name} type={type} />
@@ -206,48 +216,42 @@ const ChatMessage = ({
 
             <div className="mt-auto">
                 <div className="flex flex-col">
-                    {currentChannelMessage?.map((info, index) => {
-                        return (
-                            <ChatPendingMessage
-                                key={info.timestamp}
-                                imageUrl={info.userImage}
-                                message={info.message}
-                                name={info.name}
-                                role={info.role as MemberRole}
-                                timestamp={info.timestamp}
-                                fileUrl={info.fileUrl}
-                                progressUploaded={info.progressUploaded}
-                            />
-                        );
-                    })}
+                    {currentChannelMessage?.map((info, index) => (
+                        <ChatPendingMessage
+                            key={info.timestamp}
+                            imageUrl={info.userImage}
+                            message={info.message}
+                            name={info.name}
+                            role={info.role as MemberRole}
+                            timestamp={info.timestamp}
+                            fileUrl={info.fileUrl}
+                            progressUploaded={info.progressUploaded}
+                        />
+                    ))}
                 </div>
 
                 <div className="flex flex-col-reverse">
-                    {channel?.messages?.map((message, index) => {
-                        return (
-                            <ChatItem
-                                key={message.id}
-                                id={message.id}
-                                content={message.content}
-                                currentMember={member}
-                                fileUrl={message.fileUrl}
-                                psoterUrl={message.posterUrl}
-                                type={message.type}
-                                deleted={message.deleted}
-                                timestamp={format(
-                                    new Date(message.createdAt),
-                                    DATE_FORMAT
-                                )}
-                                isUpdated={
-                                    message.updatedAt !== message.createdAt
-                                }
-                                socketQuery={socketQuery}
-                                member={message.member}
-                                channelId={channel.id}
-                                serverId={channel.serverId}
-                            />
-                        );
-                    })}
+                    {messages?.map((message, index) => (
+                        <ChatItem
+                            key={message.id}
+                            id={message.id}
+                            content={message.content}
+                            currentMember={member}
+                            fileUrl={message.fileUrl}
+                            psoterUrl={message.posterUrl}
+                            type={message.type}
+                            deleted={message.deleted}
+                            timestamp={format(
+                                new Date(message.createdAt),
+                                DATE_FORMAT
+                            )}
+                            isUpdated={message.updatedAt !== message.createdAt}
+                            socketQuery={socketQuery}
+                            member={message.member}
+                            channelId={channel?.id || ""}
+                            serverId={channel?.serverId || ""}
+                        />
+                    ))}
                     <div ref={topMarkerRef} />
                 </div>
             </div>

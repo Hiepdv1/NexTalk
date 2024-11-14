@@ -39,7 +39,7 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
             <ChatMessage
                 member={member}
                 type="Channel"
-                apiUrl="get_messages"
+                apiUrl="fetch:messages"
                 name={channel.name}
                 socketQuery={{
                     channelId: channel.id,

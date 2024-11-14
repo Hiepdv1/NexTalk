@@ -1,7 +1,7 @@
 "use client";
 import React, { createContext, useCallback, useContext, useState } from "react";
 
-interface PendingMessage {
+export interface IPendingMessage {
     userId: string;
     message: string;
     timestamp: number;
@@ -14,10 +14,10 @@ interface PendingMessage {
 }
 
 interface PendingMessagesContextType {
-    pendingMessages: PendingMessage[];
-    addPendingMessage: (data: PendingMessage) => void;
+    pendingMessages: IPendingMessage[];
+    addPendingMessage: (data: IPendingMessage) => void;
     removePendingMessageByTimestamp: (timestamp: number) => void;
-    updatePendingMessage: (data: Partial<PendingMessage>) => void;
+    updatePendingMessage: (data: Partial<IPendingMessage>) => void;
 }
 
 const PendingMessagesContext = createContext<
@@ -27,10 +27,10 @@ const PendingMessagesContext = createContext<
 export const PendingMessagesProvider: React.FC<{
     children: React.ReactNode;
 }> = ({ children }) => {
-    const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>(
+    const [pendingMessages, setPendingMessages] = useState<IPendingMessage[]>(
         []
     );
-    const addPendingMessage = useCallback((data: PendingMessage) => {
+    const addPendingMessage = useCallback((data: IPendingMessage) => {
         setPendingMessages((prev) => [
             ...prev,
             { ...data, progressUploaded: 0 },
@@ -38,7 +38,7 @@ export const PendingMessagesProvider: React.FC<{
     }, []);
 
     const updatePendingMessage = useCallback(
-        (data: Partial<PendingMessage>) => {
+        (data: Partial<IPendingMessage>) => {
             setPendingMessages((prev) =>
                 prev.map((msg) =>
                     msg.timestamp === data.timestamp ? { ...msg, ...data } : msg

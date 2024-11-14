@@ -91,6 +91,10 @@ CREATE TABLE "DirectMessage" (
     "id" TEXT NOT NULL,
     "content" TEXT NOT NULL,
     "fileUrl" TEXT,
+    "fileId" TEXT,
+    "posterId" TEXT,
+    "posterUrl" TEXT,
+    "type" "MessageType" NOT NULL DEFAULT 'TEXT',
     "memberId" TEXT NOT NULL,
     "conversationId" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -169,6 +173,9 @@ CREATE UNIQUE INDEX "ConfigClient_key_key" ON "ConfigClient"("key");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "RequestNonce_nonce_key" ON "RequestNonce"("nonce");
+
+-- CreateIndex
+CREATE INDEX "idx_nonce" ON "RequestNonce"("nonce");
 
 -- AddForeignKey
 ALTER TABLE "Server" ADD CONSTRAINT "Server_profileId_fkey" FOREIGN KEY ("profileId") REFERENCES "Profile"("id") ON DELETE CASCADE ON UPDATE CASCADE;

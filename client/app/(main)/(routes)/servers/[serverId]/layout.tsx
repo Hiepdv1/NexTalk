@@ -1,7 +1,9 @@
 "use client";
 import { useData } from "@/components/providers/data-provider";
+import { useSocketEvents } from "@/components/providers/socket-event-provider";
 import { useSocket } from "@/components/providers/socket-provider";
 import ServerSideBar from "@/components/server/server-sidebar";
+import { IMember } from "@/interfaces";
 import { decrypt } from "@/utility/app.utility";
 import { useEffect } from "react";
 
@@ -11,31 +13,59 @@ interface IServerIdLayout {
 }
 
 const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
-    const { handleUpdateChannel, handleDeleteChannel } = useData();
-    const { socket } = useSocket();
+    const {
+        handleUpdateChannel,
+        handleDeleteChannel,
+        handleAddNewMemberInServer,
+        handleRemoveMemberInServer,
+    } = useData();
+    const { addListener } = useSocketEvents();
+
+    const handleUpdateNewMember = (data: any) => {
+        const newMember = JSON.parse(decrypt(data)) as IMember;
+        console.log(newMember);
+        handleAddNewMemberInServer(newMember);
+    };
+
+    const onUpdateChannel = (data: any) => {
+        const channel = JSON.parse(decrypt(data));
+        handleUpdateChannel(channel);
+    };
+
+    const onDeleteChannel = (data: any) => {
+        const channel = JSON.parse(decrypt(data));
+        handleDeleteChannel({
+            channelId: channel.id,
+            serverId: channel.serverId,
+        });
+    };
+
+    const handleMemberUpdate = (data: any) => {
+        const decryptData = JSON.parse(decrypt(data));
+        handleRemoveMemberInServer({
+            serverId: params.serverId,
+            memberId: decryptData.id,
+        });
+    };
 
     useEffect(() => {
-        const onUpdateChannel = (data: any) => {
-            const channel = JSON.parse(decrypt(data));
-            handleUpdateChannel(channel);
-        };
+        addListener(
+            `server:${params.serverId}:member:kick`,
+            handleMemberUpdate
+        );
+        addListener(
+            `server:${params.serverId}:member:leave`,
+            handleMemberUpdate
+        );
 
-        const onDeleteChannel = (data: any) => {
-            const channel = JSON.parse(decrypt(data));
-            handleDeleteChannel({
-                channelId: channel.id,
-                serverId: channel.serverId,
-            });
-        };
+        addListener(
+            `server:${params.serverId}:members:update`,
+            handleUpdateNewMember
+        );
 
-        socket?.on("channel:created:update", onUpdateChannel);
-        socket?.on("channel:deleted:update", onDeleteChannel);
-
-        return () => {
-            socket?.off("channel:created:update", onUpdateChannel);
-            socket?.off("channel:deleted:update", onDeleteChannel);
-        };
-    }, [socket]);
+        addListener("channel:created:update", onUpdateChannel);
+        addListener("channel:deleted:update", onDeleteChannel);
+    }, []);
 
     return (
         <div className="h-full ">

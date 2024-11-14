@@ -6,11 +6,14 @@ import {
     IMessage,
     IChannel,
     IConversation,
+    IMember,
 } from "@/interfaces";
 import { useUser } from "@clerk/nextjs";
 import { redirect, useRouter } from "next/navigation";
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { decrypt } from "@/utility/app.utility";
+import qs from "query-string";
 
 interface IDataProvider {
     servers: IServer[];
@@ -51,6 +54,12 @@ interface IDataProvider {
     }) => void;
 
     handleAddConversation: (data: IConversation) => void;
+    handleAddNewMemberInServer: (data: IMember) => void;
+
+    handleRemoveMemberInServer: (data: {
+        serverId: string;
+        memberId: string;
+    }) => void;
 }
 
 const DataContext = createContext<IDataProvider | undefined>(undefined);
@@ -78,9 +87,17 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                     imageUrl: user?.imageUrl,
                 },
             });
+
             const resServersData = await api.get("/servers");
 
-            setServers(resServersData.data.data as any);
+            const data = resServersData.data as string;
+
+            const { servers } = JSON.parse(decrypt(data));
+
+            if (servers) {
+                setServers(servers as any);
+            }
+
             setProfile(resProfile.data as any);
         };
 
@@ -328,6 +345,63 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         });
     };
 
+    const handleAddNewMemberInServer = (data: IMember) => {
+        setServers((prevServers) => {
+            const cloneServers = [...prevServers];
+
+            const server = cloneServers.find(
+                (server) => server.id === data.serverId
+            );
+
+            if (!server) return prevServers;
+
+            const isExistingMember = server.members.find(
+                (member) => member.id === data.id
+            );
+
+            if (isExistingMember) return prevServers;
+
+            const newMembers: IMember = {
+                ...data,
+                directMessages: [],
+                messages: [],
+                conversationsInitiated: [],
+            };
+
+            server.members.push(newMembers);
+
+            return cloneServers;
+        });
+    };
+
+    const handleRemoveMemberInServer = ({
+        memberId,
+        serverId,
+    }: {
+        serverId: string;
+        memberId: string;
+    }) => {
+        setServers((prevServers) => {
+            const cloneServers = [...prevServers];
+
+            const server = cloneServers.find(
+                (server) => server.id === serverId
+            );
+
+            if (!server) return prevServers;
+
+            const members = server.members.filter(
+                (member) => member.id !== memberId
+            );
+
+            if (members.length === server.members.length) return prevServers;
+
+            server.members = members;
+
+            return cloneServers;
+        });
+    };
+
     if (isLoading) {
         return null;
     }
@@ -349,6 +423,8 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 handleDeleteChannel,
                 setMessageArray,
                 handleAddConversation,
+                handleAddNewMemberInServer,
+                handleRemoveMemberInServer,
             }}
         >
             {children}

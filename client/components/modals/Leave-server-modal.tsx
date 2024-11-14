@@ -11,13 +11,15 @@ import {
 import { useModal } from "@/hooks/use-modal-store";
 import { Button } from "../ui/button";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { redirect, useRouter } from "next/navigation";
 import { RequestLeaveServer } from "@/API";
 import { Loader2 } from "lucide-react";
+import { useData } from "../providers/data-provider";
 interface IILeaveServerModalProps {}
 
 const LeaveServerModal = (props: IILeaveServerModalProps) => {
     const router = useRouter();
+    const { servers, profile, handleRemoveMemberInServer } = useData();
     const { onOpen, isOpen, onClose, type, data } = useModal();
     const [isLoading, setIsLoading] = useState(false);
 
@@ -28,10 +30,32 @@ const LeaveServerModal = (props: IILeaveServerModalProps) => {
         try {
             setIsLoading(true);
 
-            await RequestLeaveServer(`/servers/${serverId}/leave`);
+            const res = await RequestLeaveServer(`/servers/${serverId}/leave`);
+
+            if (res.statusCode !== 200) return;
 
             onClose();
-            router.push("/");
+
+            const server = servers.find((server) => server.id !== serverId);
+
+            if (!server) redirect("/");
+
+            const member = server.members.find(
+                (member) => member.profileId === profile?.id
+            );
+
+            if (!member) redirect("/");
+
+            handleRemoveMemberInServer({
+                memberId: member.id,
+                serverId: server.id,
+            });
+
+            if (servers.length > 0) {
+                router.push(`/servers/${server.id}`);
+            } else {
+                router.push("/");
+            }
         } catch (err) {
             console.error(err);
         } finally {

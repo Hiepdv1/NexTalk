@@ -11,10 +11,12 @@ import { AuthService } from '../auth/services/auth.service';
 import { ServerService } from '../server/services/server.service';
 import { ChannelService } from '../channels/services/channel.service';
 import { MessageService } from './services/message.service';
-import { ProfileCacheService } from '../auth/services/profileCache.service';
 import { WsCombinedGuard } from 'src/common/guard/WsCombined.guard';
 import { WsSignatureGuard } from 'src/common/guard/Signature/WsSignature.guard';
 import { ConversationService } from '../conversation/services/conversation.service';
+import { ProfileCacheService } from '../auth/services/profileCache.service';
+import { ServerCacheService } from '../server/services/serverCache.service';
+import { RedisCacheService } from 'src/providers/cache/redis.cache';
 
 @Module({
   providers: [
@@ -35,6 +37,8 @@ import { ConversationService } from '../conversation/services/conversation.servi
     WsSignatureGuard,
     WsClerkAuthGuard,
     ConversationService,
+    ServerCacheService,
+    RedisCacheService,
   ],
   exports: [
     ChatGateway,
@@ -53,6 +57,8 @@ import { ConversationService } from '../conversation/services/conversation.servi
     WsCombinedGuard,
     WsSignatureGuard,
     ConversationService,
+    ServerCacheService,
+    RedisCacheService,
   ],
 })
 export class SocketModule {}

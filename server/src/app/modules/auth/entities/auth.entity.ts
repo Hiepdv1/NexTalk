@@ -6,6 +6,7 @@ export type ServerWithRelations = Prisma.ServerGetPayload<{
     members: {
       include: {
         profile: true;
+        conversationsInitiated: true;
       };
     };
   };

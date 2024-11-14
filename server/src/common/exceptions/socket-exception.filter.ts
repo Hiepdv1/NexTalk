@@ -1,3 +1,4 @@
+import { Socket } from 'socket.io';
 import {
   ArgumentsHost,
   Catch,
@@ -6,33 +7,32 @@ import {
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Response } from 'express';
 import { ErrorCustom } from 'src/errors/ErrorCustom';
 
 @Catch()
-export class AllExceptionsFilter implements ExceptionFilter {
+export class SocketExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger();
 
   constructor(private readonly configService: ConfigService) {}
 
   async catch(exception: any, host: ArgumentsHost) {
-    const ctx = host.switchToHttp();
-    const req = ctx.getRequest<Request>();
-    const res = ctx.getResponse<Response>();
+    const ctx = host.switchToWs();
+    const clientSocket = ctx.getClient<Socket>();
+
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
 
     const tranformError = this.TranformError(exception);
 
     if (isProduction) {
-      this.ProdErrors(tranformError, req, res);
+      this.ProdErrors(tranformError, clientSocket);
     } else {
-      this.DevErrors(tranformError, req, res);
+      this.DevErrors(tranformError, clientSocket);
     }
   }
 
-  private DevErrors(error: ErrorCustom, req: Request, res: Response) {
-    const errorLog = this.GetErrorLog(error, req);
+  private DevErrors(error: ErrorCustom, socket: Socket) {
+    const errorLog = this.GetErrorLog(error, socket);
     const statusCode = error.statusCode;
 
     console.log('isOperationError: ', error.isOperationError);
@@ -42,17 +42,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(errorLog);
     }
 
-    res.status(statusCode).json({
+    socket.emit('error', {
+      ...error,
       statusCode,
-      message: error.message,
-      stack: error.stack,
-      errorType: error.errorType,
-      error,
     });
   }
 
-  private ProdErrors(error: ErrorCustom, req: Request, res: Response) {
-    const errorLog = this.GetErrorLog(error, req);
+  private ProdErrors(error: ErrorCustom, socket: Socket) {
+    const errorLog = this.GetErrorLog(error, socket);
     const statusCode = error.statusCode;
     if (error.isOperationError) {
       this.logger.debug(errorLog);
@@ -60,7 +57,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error(errorLog);
     }
 
-    res.status(statusCode).json({
+    socket.emit('error', {
       statusCode,
       message: error.message,
       status: error.status,
@@ -68,12 +65,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
     });
   }
 
-  private GetErrorLog(error: ErrorCustom, req: Request): string {
+  private GetErrorLog(error: ErrorCustom, socket: Socket): string {
     const errorLog = `
-    ErrorType: ${error.errorType} \n
-    Response Code: ${error.statusCode} - Method: ${req.method} - URL: ${req.url} \n
-    ${error.stack}
-    `;
+      ErrorType: ${error.errorType} \n
+      Response Code: ${error.statusCode} - HEADERS: ${socket.client.request.headers} - URL: ${socket.client.request.url} \n
+      ${error.stack}
+      `;
 
     return errorLog;
   }
