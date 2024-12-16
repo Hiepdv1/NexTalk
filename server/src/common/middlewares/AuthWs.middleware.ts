@@ -4,7 +4,7 @@ import { Socket } from 'socket.io';
 
 @Injectable()
 export class AuthWsMiddleware {
-  async use(socket: Socket, next: (err?: any) => any) {
+  async use(socket: Socket, next: (err?: any) => Promise<void>) {
     try {
       let token = (socket.handshake.auth.authorization ||
         socket.handshake.headers.authorization) as string;

@@ -16,6 +16,7 @@ const api = Axios.create({
         Expires: "0",
         "Surrogate-Control": "no-store",
     },
+    timeout: 0,
 });
 
 api.interceptors.request.use(

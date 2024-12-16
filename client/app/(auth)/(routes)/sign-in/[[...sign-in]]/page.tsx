@@ -2,7 +2,7 @@
 import { SignIn } from "@clerk/nextjs";
 
 const Page = () => {
-    return <SignIn fallbackRedirectUrl="/" />;
+    return <SignIn />;
 };
 
 export default Page;

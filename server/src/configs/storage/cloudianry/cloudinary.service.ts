@@ -1,5 +1,5 @@
 import { v4 as genuid } from 'uuid';
-import * as sharp from 'sharp';
+import sharp from 'sharp';
 import {
   v2 as cloudinary,
   UploadApiErrorResponse,
@@ -96,8 +96,8 @@ export class CloudinaryService {
         const thumbnailUrl = cloudinary.url(publicId, {
           resource_type: 'video',
           start_offset: timestamp,
-          width: resize.width || 200,
-          height: resize.height || 200,
+          width: resize?.width || 200,
+          height: resize?.height || 200,
           crop: 'scale',
           format: 'jpg',
         });

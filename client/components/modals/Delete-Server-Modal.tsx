@@ -31,16 +31,11 @@ const DeleteServerModal = (props: IDeleteServerModalProps) => {
     const onDeleteServer = async () => {
         try {
             setIsLoading(true);
+            const res = await RequestDeleteServer(
+                `/servers/${serverId}/delete`
+            );
 
-            const server = servers.find((server) => server.id !== serverId);
-
-            if (server) {
-                router.push(`/servers/${server.id}`);
-            } else {
-                router.push("/");
-            }
-
-            await RequestDeleteServer(`/servers/${serverId}/delete`);
+            if (res.statusCode !== 200) return;
 
             onClose();
         } catch (err) {

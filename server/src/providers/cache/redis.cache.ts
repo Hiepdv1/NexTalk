@@ -26,6 +26,25 @@ export class RedisCacheService {
     }
   }
 
+  public async setCacheNotEncode(key: string, data: any, time?: number) {
+    try {
+      await this.cacheManager.set(key, data, time || this.ttl);
+      this.logger.debug(`Data set in cache with key: ${key}`);
+    } catch (error) {
+      this.logger.error(`Error setting cache with key: ${key}`, error.stack);
+    }
+  }
+
+  public async getCacheNotDecode(key: string) {
+    const cache = await this.cacheManager.get(key);
+    if (!cache) {
+      this.logger.debug(`Cache miss for key: ${key}`);
+      return null;
+    }
+
+    return cache;
+  }
+
   public async getCache(key: string) {
     try {
       const cache = (await this.cacheManager.get(key)) as Buffer | null;

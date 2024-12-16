@@ -10,14 +10,15 @@ import { Plus } from "lucide-react";
 import qs from "query-string";
 import { PostRequest } from "@/API/api";
 import { useSocket } from "../providers/socket-provider";
-import { memo, useEffect, useRef } from "react";
+import { ClipboardEvent, memo, useEffect, useRef, useState } from "react";
 import { useModal } from "@/hooks/use-modal-store";
 import EmojiPicker from "../emoji-picker";
 import { usePendingMessages } from "@/components/providers/pending-message";
 import { useUser } from "@clerk/nextjs";
-import { IChannel, IMember, Member } from "@/interfaces";
+import { IChannel, IConversation, IMember, Member } from "@/interfaces";
 import { AxiosProgressEvent } from "axios";
 import { RequestUploadFileMessage } from "@/API";
+import Image from "next/image";
 
 interface IChatInputProps {
     apiUrl: string;
@@ -26,6 +27,7 @@ interface IChatInputProps {
     type: "conversation" | "channel";
     member: IMember;
     channel?: IChannel;
+    conversation?: IConversation;
 }
 
 const ChatInput = ({
@@ -35,13 +37,16 @@ const ChatInput = ({
     type,
     member,
     channel,
+    conversation,
 }: IChatInputProps) => {
     const { onOpen } = useModal();
+    const [image, setImage] = useState<string | null>(null);
     const { sendMessage, socket } = useSocket();
     const {
         addPendingMessage,
         updatePendingMessage,
         removePendingMessageByTimestamp,
+        handleAddPendingDirectMessage,
     } = usePendingMessages();
     const { user, isLoaded, isSignedIn } = useUser();
     const lastEnter = useRef<number>(0);
@@ -76,27 +81,74 @@ const ChatInput = ({
         setupSocketListeners();
     }, [socket]);
 
+    const handleSendMessageChannel = (
+        timestamp: number,
+        value: z.infer<typeof ChatInputSchema>,
+        channelId: string
+    ) => {
+        if (!sendMessage || !user) return;
+        addPendingMessage({
+            channelId,
+            timestamp,
+            message: value.content,
+            name: `${user.firstName} ${user.lastName || ""}`,
+            role: member.role,
+            userId: user.id,
+            userImage: user.imageUrl,
+        });
+        sendMessage(
+            "send_message",
+            {
+                content: value.content,
+                channelId: channelId,
+                memberId: query.memberId,
+                serverId: query.serverId,
+                timestamp,
+            },
+            "POST"
+        );
+    };
+
+    const handleSendMessageConversation = (
+        timestamp: number,
+        value: z.infer<typeof ChatInputSchema>
+    ) => {
+        if (!sendMessage || !user || !conversation) return;
+        handleAddPendingDirectMessage({
+            conversationId: conversation.id,
+            message: value.content,
+            name: `${user.firstName} ${user.lastName || ""}`,
+            role: member.role,
+            userId: user.id,
+            userImage: user.imageUrl,
+            timestamp,
+        });
+        sendMessage(
+            "send_message_conversation",
+            {
+                content: value.content,
+                memberId: query.memberId,
+                serverId: query.serverId,
+                otherMemberId: query.otherMemberId,
+                timestamp,
+            },
+            "POST"
+        );
+    };
+
     const onSubmit = (value: z.infer<typeof ChatInputSchema>) => {
         try {
             if (Date.now() - lastEnter.current < 500) return;
             lastEnter.current = Date.now();
 
-            if (!sendMessage || !isSignedIn || !user) return;
+            if (!isSignedIn || !user) return;
 
             const timestamp = Date.now();
 
             if (type === "channel" && channel) {
-                sendMessage(
-                    "send_message",
-                    {
-                        content: value.content,
-                        channelId: channel.id,
-                        memberId: query.memberId,
-                        serverId: query.serverId,
-                        timestamp,
-                    },
-                    "POST"
-                );
+                handleSendMessageChannel(timestamp, value, channel.id);
+            } else if (type === "conversation") {
+                handleSendMessageConversation(timestamp, value);
             }
 
             form.reset();
@@ -124,7 +176,7 @@ const ChatInput = ({
     }) => {
         if (!user) return;
 
-        if (channel && type === "conversation") {
+        if (channel && type === "channel") {
             addPendingMessage({
                 channelId: channel.id,
                 message: values.file.name,
@@ -134,6 +186,17 @@ const ChatInput = ({
                 userId: user.id,
                 userImage: user.imageUrl,
                 fileUrl: values.pathFile,
+            });
+        } else if (type === "conversation") {
+            handleAddPendingDirectMessage({
+                message: values.file.name,
+                name: `${user.firstName} ${user.lastName || ""}`,
+                role: member.role,
+                timestamp: values.timestamp,
+                userId: user.id,
+                userImage: user.imageUrl,
+                fileUrl: values.pathFile,
+                conversationId: query.conversationId,
             });
         }
     };
@@ -166,6 +229,24 @@ const ChatInput = ({
         }
     };
 
+    const handleOnPast = (event: ClipboardEvent<HTMLInputElement>) => {
+        const items = event.clipboardData.items;
+
+        for (const item of items) {
+            if (item.type.startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) {
+                    const imageUrl = URL.createObjectURL(file);
+                    setImage(imageUrl);
+                }
+            }
+        }
+    };
+
+    const handleClosePreviewImage = () => {
+        setImage(null);
+    };
+
     return (
         <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -175,34 +256,72 @@ const ChatInput = ({
                     render={({ field }) => (
                         <FormItem>
                             <FormControl>
-                                <div className="relative p-4 pb-6">
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            onOpen("MessageFile", {
-                                                onUploadFile: handleUpLoadfile,
-                                            })
-                                        }
-                                        className="absolute top-7 left-8 h-6 w-6 bg-zinc-500 dark:bg-zinc-400 hover:bg-zinc-600 dark:hover:bg-zinc-300 transition rounded-full p-1 flex items-center  justify-center"
-                                    >
-                                        <Plus className="text-white dark:text-[#313338]" />
-                                    </button>
-                                    <Input
-                                        className="px-14 py-6 bg-zinc-200/90 dark:bg-zinc-700/75 border-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-zinc-600 dark:text-zinc-200"
-                                        disabled={isLoading}
-                                        placeholder={`Message ${
-                                            type === "conversation" ? name : "#"
-                                        }`}
-                                        {...field}
-                                    />
-                                    <div className="absolute top-7 right-8">
-                                        <EmojiPicker
-                                            onChange={(emoji: string) =>
-                                                field.onChange(
-                                                    `${field.value} ${emoji}`
-                                                )
+                                <div className="relative p-4 pb-6 d-flex flex-col">
+                                    {image && (
+                                        <div className="d-flex">
+                                            <div className="relative w-20 h-20">
+                                                <img
+                                                    alt="image/preview"
+                                                    src={image}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                                <button
+                                                    className="absolute top-2 right-2"
+                                                    onClick={
+                                                        handleClosePreviewImage
+                                                    }
+                                                >
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        strokeWidth={1.5}
+                                                        stroke="currentColor"
+                                                        className="size-6"
+                                                    >
+                                                        <path
+                                                            stroke-linecap="round"
+                                                            stroke-linejoin="round"
+                                                            d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+                                                        />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                    <div className="relative d-flex items-center">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                onOpen("MessageFile", {
+                                                    onUploadFile:
+                                                        handleUpLoadfile,
+                                                })
                                             }
+                                            className="absolute top-1/2 -translate-y-1/2 left-4 h-6 w-6 bg-zinc-500 dark:bg-zinc-400 hover:bg-zinc-600 dark:hover:bg-zinc-300 transition rounded-full p-1 flex items-center justify-center"
+                                        >
+                                            <Plus className="text-white dark:text-[#313338]" />
+                                        </button>
+                                        <Input
+                                            className="px-14 py-6 bg-zinc-200/90 dark:bg-zinc-700/75 border-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 text-zinc-600 dark:text-zinc-200"
+                                            disabled={isLoading}
+                                            placeholder={`Message ${
+                                                type === "conversation"
+                                                    ? name
+                                                    : "#"
+                                            }`}
+                                            onPaste={handleOnPast}
+                                            {...field}
                                         />
+                                        <div className="absolute top-1/2 -translate-y-1/2 right-4 w-6 h-6">
+                                            <EmojiPicker
+                                                onChange={(emoji: string) =>
+                                                    field.onChange(
+                                                        `${field.value} ${emoji}`
+                                                    )
+                                                }
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                             </FormControl>

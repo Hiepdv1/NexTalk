@@ -1,5 +1,12 @@
 "use client";
-import { IChannel, IMessage, Member, MemberRole } from "@/interfaces";
+import {
+    IChannel,
+    IConversation,
+    IDirectMessage,
+    IMessage,
+    Member,
+    MemberRole,
+} from "@/interfaces";
 import ChatWelcome from "./chat-welcome";
 import { format } from "date-fns";
 import React, {
@@ -36,6 +43,7 @@ interface IChatMessageProps {
     type: "Channel" | "Conversation";
     channel?: IChannel;
     message?: Record<string, any>;
+    conversation?: IConversation;
 }
 
 const ChatMessage = ({
@@ -49,9 +57,16 @@ const ChatMessage = ({
     channel,
     apiUrl,
     message,
+    conversation,
 }: IChatMessageProps) => {
-    const { setMessage, handleDeleteMessage, handleEditMessage } = useData();
-    const { addListener } = useSocketEvents();
+    const {
+        setMessage,
+        handleDeleteMessage,
+        handleEditMessage,
+        handelSetMessageConversationArray,
+        handleAddMessageConversation,
+    } = useData();
+    const { addListener, removeListener } = useSocketEvents();
     const { hasNextPage, fetchNextPage, isFetchingNextPage } = useQueryChat({
         apiUrl,
         message: {
@@ -64,28 +79,43 @@ const ChatMessage = ({
 
     const chatRef = useRef<ElementRef<"div">>(null);
     const topMarkerRef = useRef<ElementRef<"div">>(null);
-    const { pendingMessages, removePendingMessageByTimestamp } =
-        usePendingMessages();
-    const currentChannelMessage = pendingMessages.filter(
-        (message) => message.channelId === chatId
-    );
+    const {
+        pendingMessages,
+        removePendingMessageByTimestamp,
+        pendingDirectMessages,
+        handelRemovePendingDirectMessages,
+    } = usePendingMessages();
     const { socket } = useSocket();
 
     const [isAtTop, setIsAtTop] = useState(false);
 
-    const messages = type === "Channel" ? channel?.messages : [];
+    const messages =
+        type === "Channel" ? channel?.messages : conversation?.directMessages;
+
+    let currentPendingMessages = [];
+
+    if (type === "Channel") {
+        currentPendingMessages = pendingMessages.filter(
+            (message) => message.channelId === chatId
+        );
+    } else {
+        currentPendingMessages = pendingDirectMessages.filter(
+            (msg) => msg.conversationId === conversation?.id
+        );
+    }
 
     const shouldShowChatWelcome = useMemo(() => {
         if (!hasNextPage) return true;
         if (type === "Channel" && (!channel || channel.messages.length <= 0))
             return true;
+        if (type === "Conversation") return true;
         return false;
     }, [hasNextPage, channel, type]);
 
     const handleIncomingMessage = (data: any) => {
         const message = JSON.parse(decrypt(data));
-        removePendingMessageByTimestamp(message.timestamp);
-        if (type === "Channel" && channel) {
+        if (channel) {
+            removePendingMessageByTimestamp(message.timestamp);
             setMessage(channel.serverId, channel.id, message);
         }
     };
@@ -129,21 +159,38 @@ const ChatMessage = ({
         return observer;
     };
 
+    const handleFetchConversationMessage = (data: any) => {
+        const message = JSON.parse(decrypt(data)) as IDirectMessage[];
+        handelSetMessageConversationArray(message, socketQuery.conversationId);
+    };
+
+    const handleIncomingDirectMessage = (data: any) => {
+        const message = JSON.parse(decrypt(data));
+        handelRemovePendingDirectMessages(message.timestamp);
+        handleAddMessageConversation(message);
+    };
+
     const setupSocketListeners = () => {
-        if (type === "Channel" && channel) {
-            addListener(
-                `chat:${socketQuery.channelId}:messages`,
-                handleIncomingMessage
-            );
-            addListener(
-                `channels:${channel.id}:message:update`,
-                handleOnEditMessage
-            );
-            addListener(
-                `channels:${channel.id}:message:delete`,
-                handleOnDeleteMessage
-            );
-        }
+        addListener(
+            `chat:${socketQuery.channelId}:messages`,
+            handleIncomingMessage
+        );
+        addListener(
+            `channels:${channel?.id}:message:update`,
+            handleOnEditMessage
+        );
+        addListener(
+            `channels:${channel?.id}:message:delete`,
+            handleOnDeleteMessage
+        );
+        addListener(
+            `server:${socketQuery.serverId}:conversation:${socketQuery.conversationId}:message`,
+            handleFetchConversationMessage
+        );
+        addListener(
+            `chat:${socketQuery.serverId}:conversation:message`,
+            handleIncomingDirectMessage
+        );
     };
 
     const initializeScrollObserver = (
@@ -174,7 +221,7 @@ const ChatMessage = ({
         return () => {
             cleanupObserver();
         };
-    }, []);
+    }, [channel, conversation]);
 
     useEffect(() => {
         const top = chatRef.current?.scrollHeight;
@@ -191,8 +238,14 @@ const ChatMessage = ({
 
     useEffect(() => {
         if (!socket) return;
-        setupSocketListeners();
-    }, [socket, chatId]);
+        const unmount = setupSocketListeners();
+
+        return unmount;
+    }, [socket, chatId, conversation]);
+
+    useEffect(() => {
+        chatRef.current?.scrollTo(0, chatRef.current?.scrollHeight || 0);
+    }, [pendingMessages, pendingDirectMessages]);
 
     return (
         <div
@@ -215,8 +268,36 @@ const ChatMessage = ({
             )}
 
             <div className="mt-auto">
+                <div className="flex flex-col-reverse">
+                    {messages?.map((message, index) => {
+                        return (
+                            <ChatItem
+                                key={message.id}
+                                id={message.id}
+                                content={message.content}
+                                currentMember={member}
+                                fileUrl={message.fileUrl}
+                                psoterUrl={message.posterUrl}
+                                type={message.type}
+                                deleted={message.deleted}
+                                timestamp={format(
+                                    new Date(message.createdAt),
+                                    DATE_FORMAT
+                                )}
+                                isUpdated={
+                                    message.updatedAt !== message.createdAt
+                                }
+                                socketQuery={socketQuery}
+                                member={message.member}
+                                channelId={channel?.id || ""}
+                                serverId={channel?.serverId || ""}
+                            />
+                        );
+                    })}
+                </div>
+
                 <div className="flex flex-col">
-                    {currentChannelMessage?.map((info, index) => (
+                    {currentPendingMessages?.map((info, index) => (
                         <ChatPendingMessage
                             key={info.timestamp}
                             imageUrl={info.userImage}
@@ -228,30 +309,7 @@ const ChatMessage = ({
                             progressUploaded={info.progressUploaded}
                         />
                     ))}
-                </div>
 
-                <div className="flex flex-col-reverse">
-                    {messages?.map((message, index) => (
-                        <ChatItem
-                            key={message.id}
-                            id={message.id}
-                            content={message.content}
-                            currentMember={member}
-                            fileUrl={message.fileUrl}
-                            psoterUrl={message.posterUrl}
-                            type={message.type}
-                            deleted={message.deleted}
-                            timestamp={format(
-                                new Date(message.createdAt),
-                                DATE_FORMAT
-                            )}
-                            isUpdated={message.updatedAt !== message.createdAt}
-                            socketQuery={socketQuery}
-                            member={message.member}
-                            channelId={channel?.id || ""}
-                            serverId={channel?.serverId || ""}
-                        />
-                    ))}
                     <div ref={topMarkerRef} />
                 </div>
             </div>

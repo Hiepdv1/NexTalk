@@ -25,10 +25,10 @@ import { AuthService } from '../../auth/services/auth.service';
 import { Request } from 'express';
 import { MemberRole, Prisma } from '@prisma/client';
 import { MemberRoleParamsDto } from '../dto/member.dto';
-import { ChatGateway } from '../../socket/gateway/chat.gateway';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ServerCacheService } from '../services/serverCache.service';
+import { MediaGateway } from '../../socket/gateway/Media.gateway';
 
 @Controller('/servers')
 export class ServerController {
@@ -38,10 +38,9 @@ export class ServerController {
     private readonly serverService: ServerService,
     private readonly authService: AuthService,
     private readonly cloudinaryService: CloudinaryService,
-    private readonly chatGateway: ChatGateway,
+    private readonly mediaGateway: MediaGateway,
     private readonly configService: ConfigService,
-    private readonly serverCacheService: ServerCacheService,
-    private readonly chatgateway: ChatGateway
+    private readonly serverCacheService: ServerCacheService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
   }
@@ -92,7 +91,7 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit('server:created:update', encryptData);
+    this.mediaGateway.server.emit('server:created:update', encryptData);
 
     return {
       statusCode: 200,
@@ -182,13 +181,11 @@ export class ServerController {
 
     const caches = data.servers.map(async (server) => {
       const members = server.members.map((member) => {
-        const { conversationsInitiated } = member;
-        const conversations = conversationsInitiated.map((con) => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { directMessages, ...rest } = con;
-          return rest;
-        });
-        return { ...member, conversationsInitiated: conversations };
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { conversationsInitiated, conversationsReceived, ...rest } =
+          member;
+
+        return rest;
       });
 
       const channels = server.channels.map((channel) => {
@@ -359,7 +356,7 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit(
+    this.mediaGateway.server.emit(
       `server:${newMember.serverId}:members:update`,
       encryptData
     );
@@ -375,7 +372,10 @@ export class ServerController {
   ) {
     const userId = req.userId;
 
-    const profile = await this.authService.findUserById(userId);
+    const [profile, serverCache] = await Promise.all([
+      this.authService.findUserById(userId),
+      this.serverCacheService.getServerCache(query.serverId),
+    ]);
 
     if (!profile) throw new NotFoundException('The User doest not exist');
 
@@ -385,6 +385,44 @@ export class ServerController {
       query.memberId,
       body.role
     );
+
+    let server = serverCache;
+
+    if (!server) {
+      server = await this.serverService.getServerById(query.serverId);
+      if (!server) throw new NotFoundException('The user does not exist');
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
+      );
+    } else {
+      const member = server.members.find(
+        (member) => member.id === query.memberId
+      );
+
+      if (!member)
+        throw new NotFoundException('The member does not exist this server');
+
+      member.role = body.role;
+
+      await this.serverCacheService.setAndOverrideServerCache(
+        server.id,
+        server
+      );
+    }
+
+    const keyEvent = `server:${server.id}:member:update:role`;
+
+    const encryptData = AppHelperService.encrypt(
+      JSON.stringify({
+        memberId: query.memberId,
+        serverId: query.serverId,
+        role: body.role,
+      }),
+      this.SECRET_KEY
+    );
+
+    this.mediaGateway.server.emit(keyEvent, encryptData);
 
     return updated;
   }
@@ -436,7 +474,7 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit(
+    this.mediaGateway.server.emit(
       `server:${server.id}:member:kick`,
       encryptData
     );
@@ -488,11 +526,11 @@ export class ServerController {
     await this.serverCacheService.setAndOverrideServerCache(server.id, server);
 
     const encryptData = AppHelperService.encrypt(
-      JSON.stringify({ id: memberLeave.id }),
+      JSON.stringify({ id: memberLeave.id, serverId }),
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit(
+    this.mediaGateway.server.emit(
       `server:${server.id}:member:leave`,
       encryptData
     );
@@ -542,7 +580,7 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit('server:deleted:update', encryptData);
+    this.mediaGateway.server.emit('server:deleted:update', encryptData);
 
     return {
       statusCode: 200,

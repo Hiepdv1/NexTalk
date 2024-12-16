@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ChatService } from './services/chat.service';
-import { ChatGateway } from './gateway/chat.gateway';
 import { PostgresDatabaseProviderService } from 'src/providers/database/postgres/provider.service';
 import { AuthWsMiddleware } from 'src/common/middlewares/AuthWs.middleware';
 import { ConfigService } from '@nestjs/config';
@@ -17,12 +15,16 @@ import { ConversationService } from '../conversation/services/conversation.servi
 import { ProfileCacheService } from '../auth/services/profileCache.service';
 import { ServerCacheService } from '../server/services/serverCache.service';
 import { RedisCacheService } from 'src/providers/cache/redis.cache';
+import { ConversationCacheService } from '../conversation/services/conversationCache.service';
+import { ChatService } from './services/chat.service';
+import { MediaGateway } from './gateway/Media.gateway';
+import { CallService } from './services/callService.service';
 
 @Module({
   providers: [
     PostgresDatabaseProviderService,
     ChatService,
-    ChatGateway,
+    MediaGateway,
     AuthWsMiddleware,
     ConfigService,
     RequestNonceService,
@@ -39,9 +41,11 @@ import { RedisCacheService } from 'src/providers/cache/redis.cache';
     ConversationService,
     ServerCacheService,
     RedisCacheService,
+    ConversationCacheService,
+    CallService,
   ],
   exports: [
-    ChatGateway,
+    MediaGateway,
     ChatService,
     PostgresDatabaseProviderService,
     AuthWsMiddleware,
@@ -59,6 +63,8 @@ import { RedisCacheService } from 'src/providers/cache/redis.cache';
     ConversationService,
     ServerCacheService,
     RedisCacheService,
+    ConversationCacheService,
+    CallService,
   ],
 })
 export class SocketModule {}

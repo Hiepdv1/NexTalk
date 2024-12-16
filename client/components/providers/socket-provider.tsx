@@ -33,13 +33,13 @@ const SocketContext = createContext<SocketContextType>({
 
 const SocketProvider = ({ children }: ISocketProviderProps) => {
     const { getToken, isSignedIn } = useAuth();
-    const [socket, setSocket] = useState<Socket | null>(null);
+    const socket = useRef<Socket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
         const connectSocket = () => {
             const token = getCookie("__session");
-            const url = `${process.env.NEXT_PUBLIC_SOCKET_SERVER_URL}/chat`;
+            const url = `${process.env.NEXT_PUBLIC_SOCKET_SERVER_URL}/media`;
 
             const clientSocket = ClientIO(url, {
                 auth: {
@@ -49,18 +49,20 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
                 reconnectionDelay: 1000,
                 reconnectionDelayMax: 10000,
                 randomizationFactor: 0.5,
+                withCredentials: true,
+                transports: ["websocket"],
             });
+
+            socket.current = clientSocket;
 
             clientSocket.on("connect", () => {
                 console.log("Socket connected!");
                 setIsConnected(true);
-                setSocket(clientSocket);
             });
 
             clientSocket.on("disconnect", () => {
                 console.log("Socket disconnected");
                 setIsConnected(false);
-                setSocket(null);
             });
 
             clientSocket.on("reconnect", (attempt) => {
@@ -79,9 +81,9 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
         }
 
         return () => {
-            if (socket) {
+            if (socket.current) {
                 console.log("Disconnecting socket...");
-                socket.disconnect();
+                socket.current.disconnect();
             }
         };
     }, [isSignedIn, getToken, socket]);
@@ -92,7 +94,7 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
         methodWs?: "GET" | "POST",
         query?: any
     ) => {
-        if (!socket || !isConnected) {
+        if (!socket.current || !isConnected) {
             console.error("Socket instance not found");
             return;
         }
@@ -127,14 +129,16 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
                 query,
             };
 
-            socket.emit(event, payload);
+            socket.current.emit(event, payload);
         } else {
             console.error("Socket is not connected");
         }
     };
 
     return (
-        <SocketContext.Provider value={{ socket, isConnected, sendMessage }}>
+        <SocketContext.Provider
+            value={{ socket: socket.current, isConnected, sendMessage }}
+        >
             {children}
         </SocketContext.Provider>
     );

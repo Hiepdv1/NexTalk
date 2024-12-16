@@ -56,7 +56,12 @@ export class ServerService {
         members: {
           include: {
             profile: true,
-            conversationsInitiated: true,
+            conversationsInitiated: {
+              take: 12,
+            },
+            conversationsReceived: {
+              take: 12,
+            },
           },
         },
       },
@@ -131,9 +136,40 @@ export class ServerService {
           members: {
             include: {
               profile: true,
+              directMessages: true,
               conversationsInitiated: {
                 include: {
-                  directMessages: true,
+                  directMessages: {
+                    include: {
+                      member: {
+                        include: {
+                          profile: true,
+                        },
+                      },
+                    },
+                    take: 12,
+                    orderBy: {
+                      createdAt: 'desc',
+                    },
+                  },
+                },
+                take: 12,
+              },
+              conversationsReceived: {
+                include: {
+                  directMessages: {
+                    include: {
+                      member: {
+                        include: {
+                          profile: true,
+                        },
+                      },
+                    },
+                    take: 12,
+                    orderBy: {
+                      createdAt: 'desc',
+                    },
+                  },
                 },
                 take: 12,
               },
@@ -188,6 +224,7 @@ export class ServerService {
           include: {
             profile: true,
             conversationsInitiated: true,
+            conversationsReceived: true,
           },
           take: 12,
         },
@@ -411,6 +448,12 @@ export class ServerService {
           include: {
             profile: true,
             conversationsInitiated: {
+              include: {
+                directMessages: true,
+              },
+              take: 12,
+            },
+            conversationsReceived: {
               include: {
                 directMessages: true,
               },

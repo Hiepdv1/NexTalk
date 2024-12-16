@@ -26,11 +26,11 @@ import { ChannelCacheService } from '../services/channelCache.service';
 import { CloudinaryService } from 'src/configs/storage/cloudianry/cloudinary.service';
 import { v4 as genuuid } from 'uuid';
 import { MessageType } from '@prisma/client';
-import { ChatGateway } from '../../socket/gateway/chat.gateway';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { ServerCacheService } from '../../server/services/serverCache.service';
+import { MediaGateway } from '../../socket/gateway/Media.gateway';
 
 @Controller('/channels')
 export class ChannelController {
@@ -45,7 +45,7 @@ export class ChannelController {
     private readonly channelCacheService: ChannelCacheService,
     private readonly profileCacheService: ProfileCacheService,
     private readonly cloudinaryService: CloudinaryService,
-    private readonly chatGateway: ChatGateway,
+    private readonly mediaGateway: MediaGateway,
     private readonly configService: ConfigService,
     private readonly serverCacheService: ServerCacheService
   ) {
@@ -89,7 +89,7 @@ export class ChannelController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit('channel:created:update', encryptData);
+    this.mediaGateway.server.emit('channel:created:update', encryptData);
 
     return {
       statusCode: 200,
@@ -114,7 +114,7 @@ export class ChannelController {
       this.SECRET_KEY
     );
 
-    this.chatGateway.server.emit('channel:deleted:update', encryptData);
+    this.mediaGateway.server.emit('channel:deleted:update', encryptData);
 
     return {
       statusCode: 200,
@@ -270,7 +270,7 @@ export class ChannelController {
         this.SECRET_KEY
       );
 
-      this.chatGateway.server.emit(`chat:${channelId}:messages`, encryptData);
+      this.mediaGateway.server.emit(`chat:${channelId}:messages`, encryptData);
 
       return {
         statusCode: 200,
@@ -283,11 +283,15 @@ export class ChannelController {
         { path: '/Discord-app/File-Messages' }
       );
 
+      const type = file.mimetype.startsWith('image/')
+        ? MessageType.IMAGE
+        : MessageType.FILE;
+
       const newMessage = await this.messageService.CreateMessage({
         content: uploadFiles.url,
         fileUrl: uploadFiles.url,
         fileId: uploadFiles.file.path_lower,
-        type: MessageType.FILE,
+        type,
         channelId: channelId,
         memberId: isExistingMember.id,
       });
@@ -297,7 +301,7 @@ export class ChannelController {
         this.SECRET_KEY
       );
 
-      this.chatGateway.server.emit(`chat:${channelId}:messages`, encryptData);
+      this.mediaGateway.server.emit(`chat:${channelId}:messages`, encryptData);
 
       return {
         statusCode: 200,

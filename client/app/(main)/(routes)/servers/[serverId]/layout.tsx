@@ -18,6 +18,7 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
         handleDeleteChannel,
         handleAddNewMemberInServer,
         handleRemoveMemberInServer,
+        handleOnChangeRoleMember,
     } = useData();
     const { addListener } = useSocketEvents();
 
@@ -48,6 +49,13 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
         });
     };
 
+    const handleOnUpdateRoleMember = (data: any) => {
+        const decryptData = JSON.parse(decrypt(data));
+        handleOnChangeRoleMember(decryptData);
+    };
+
+    const handleInCommingMessageConversation = (data: any) => {};
+
     useEffect(() => {
         addListener(
             `server:${params.serverId}:member:kick`,
@@ -65,6 +73,11 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
 
         addListener("channel:created:update", onUpdateChannel);
         addListener("channel:deleted:update", onDeleteChannel);
+
+        addListener(
+            `server:${params.serverId}:member:update:role`,
+            handleOnUpdateRoleMember
+        );
     }, []);
 
     return (

@@ -27,7 +27,7 @@ interface IMemberIdPageProps {
 const MemberIdPage = ({ params }: IMemberIdPageProps) => {
     const { profile, servers, handleAddConversation, conversations } =
         useData();
-    const { addListener } = useSocketEvents();
+    const { addListener, removeListener } = useSocketEvents();
     const { sendMessage } = useSocket();
 
     const server = servers.find((server) => server.id === params.serverId);
@@ -45,14 +45,17 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
 
     const conversation = conversations.find((con) => {
         return (
-            con.memberOneId === otherMember.id ||
-            con.memberTwoId === otherMember.id
+            (con.memberOneId === otherMember.id ||
+                con.memberTwoId === otherMember.id) &&
+            con.memberOne.serverId === params.serverId &&
+            con.memberTwo.serverId === params.serverId
         );
     });
 
+    console.log("List Conversation: ", conversations);
+
     const handleGetConversation = (data: any) => {
         const conversation = JSON.parse(decrypt(data)) as IConversation;
-        console.log(conversation);
         handleAddConversation(conversation);
     };
 
@@ -70,6 +73,8 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
         }
     };
 
+    const handleIncommingConversationMessage = (data: any) => {};
+
     useEffect(() => {
         if (!sendMessage) return;
 
@@ -82,10 +87,28 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
             handleGetConversation
         );
 
+        addListener(
+            `chat:conversation:${conversation?.id}:message`,
+            handleIncommingConversationMessage
+        );
+
         handleFetchConversation();
-    }, []);
+
+        return () => {
+            removeListener(
+                `conversation:${memberIds.join("-")}`,
+                handleGetConversation
+            );
+            removeListener(
+                `chat:conversation:${conversation?.id}:message`,
+                handleIncommingConversationMessage
+            );
+        };
+    }, [conversation]);
 
     if (!conversation) return;
+
+    console.log("Conversation: ", conversation);
 
     return (
         <div className="bg-white dark:bg-[#313338] flex flex-col h-screen">
@@ -99,18 +122,28 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
                 member={otherMember}
                 name={otherMember.profile.name}
                 chatId={conversation.id}
-                apiUrl="/"
+                apiUrl="fetch:conversation:message"
                 paramKey="conversationId"
-                socketQuery={{}}
+                socketQuery={{
+                    conversationId: conversation.id,
+                    serverId: server.id,
+                }}
                 type="Conversation"
                 paramValue=""
+                conversation={conversation}
             />
             <ChatInput
                 member={otherMember}
                 apiUrl="/conversations/messages/uploadFile"
                 name={otherMember.profile.name}
-                query={{}}
+                query={{
+                    serverId: server.id,
+                    memberId: currentMember.id,
+                    conversationId: conversation.id,
+                    otherMemberId: otherMember.id,
+                }}
                 type="conversation"
+                conversation={conversation}
             />
         </div>
     );

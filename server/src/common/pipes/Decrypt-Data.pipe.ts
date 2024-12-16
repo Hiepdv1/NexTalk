@@ -18,11 +18,11 @@ export class DecryptDataPipe implements PipeTransform {
 
       if (this.fields.length === 0) {
         const decryptedData = AppHelperService.decrypt(values, secretKey);
+        console.log('Decrypted Data:', decryptedData);
         return JSON.parse(decryptedData);
       }
 
       const decryptedValues = { ...values };
-
       this.fields.forEach((field) => {
         if (decryptedValues[field]) {
           decryptedValues[field] = JSON.parse(
@@ -30,7 +30,6 @@ export class DecryptDataPipe implements PipeTransform {
           );
         }
       });
-
       return decryptedValues;
     } catch {
       throw new BadRequestException('Invalid data');

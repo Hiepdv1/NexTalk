@@ -22,8 +22,10 @@ import { SocketModule } from './modules/socket/socket.module';
 import { NestDropboxModule } from 'src/configs/storage/dropbox/dropbox.module';
 import { ServerCacheService } from './modules/server/services/serverCache.service';
 import connectRedis from 'connect-redis';
-import * as session from 'express-session';
+import session from 'express-session';
 import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { WebRtcModule } from './modules/webRTC/webRtc.module';
 
 @Module({
   imports: [
@@ -46,6 +48,34 @@ import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types';
     ConversationModule,
     SocketModule,
     NestDropboxModule,
+    WebRtcModule,
+    ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 1000, // 1s
+        limit: 3,
+      },
+      {
+        name: 'medium',
+        ttl: 60000, // 1m
+        limit: 30,
+      },
+      {
+        name: 'long',
+        ttl: 3600000, // 1h
+        limit: 2500,
+      },
+      {
+        name: 'auth',
+        ttl: 300000, // 5m
+        limit: 5,
+      },
+      {
+        name: 'file',
+        ttl: 60000, // 1m
+        limit: 10,
+      },
+    ]),
   ],
   providers: [
     ConfigService,

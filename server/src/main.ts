@@ -5,17 +5,15 @@ import { ConfigService } from '@nestjs/config';
 import { LoggerCustom } from './common/utils/logging.service';
 import { CustomValidationMessages } from './common/pipes/Custom.validation';
 import * as bodyParser from 'body-parser';
-import * as cookieParser from 'cookie-parser';
+import cookieParser from 'cookie-parser';
 import { AllExceptionsFilter } from './common/exceptions/all-exception.filter';
-
-import * as crypto from 'crypto';
+import { SocketAdapter } from './providers/Adapter/socket.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(MainModule, { bodyParser: true });
   const configService = app.get(ConfigService);
   const port = configService.get<number>('APP_PORT');
-
-  console.log(crypto.randomBytes(32).toString('hex'));
+  app.useWebSocketAdapter(new SocketAdapter(app));
 
   app.use(cookieParser());
   app.enableCors({

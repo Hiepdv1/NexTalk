@@ -13,11 +13,26 @@ export interface IPendingMessage {
     progressUploaded?: number;
 }
 
+export interface IPendingDirectMessage {
+    userId: string;
+    message: string;
+    timestamp: number;
+    userImage: string;
+    name: string;
+    role: string;
+    conversationId: string;
+    fileUrl?: string;
+    progressUploaded?: number;
+}
+
 interface PendingMessagesContextType {
     pendingMessages: IPendingMessage[];
+    pendingDirectMessages: IPendingDirectMessage[];
     addPendingMessage: (data: IPendingMessage) => void;
     removePendingMessageByTimestamp: (timestamp: number) => void;
     updatePendingMessage: (data: Partial<IPendingMessage>) => void;
+    handleAddPendingDirectMessage: (data: IPendingDirectMessage) => void;
+    handelRemovePendingDirectMessages: (timestamp: number) => void;
 }
 
 const PendingMessagesContext = createContext<
@@ -30,6 +45,11 @@ export const PendingMessagesProvider: React.FC<{
     const [pendingMessages, setPendingMessages] = useState<IPendingMessage[]>(
         []
     );
+
+    const [pendingDirectMessages, setPendingDirectMessages] = useState<
+        IPendingDirectMessage[]
+    >([]);
+
     const addPendingMessage = useCallback((data: IPendingMessage) => {
         setPendingMessages((prev) => [
             ...prev,
@@ -54,13 +74,40 @@ export const PendingMessagesProvider: React.FC<{
         );
     }, []);
 
+    const handleAddPendingDirectMessage = (data: IPendingDirectMessage) => {
+        setPendingDirectMessages((prevDirectMessages) => {
+            const cloneDirectMessage = [...prevDirectMessages];
+
+            const conversation = cloneDirectMessage.find(
+                (con) => con.conversationId === data.conversationId
+            );
+
+            if (!conversation) return prevDirectMessages;
+
+            cloneDirectMessage.push(data);
+
+            return cloneDirectMessage;
+        });
+    };
+
+    const handelRemovePendingDirectMessages = (timestamp: number) => {
+        setPendingDirectMessages((prevDirectMessages) => {
+            return prevDirectMessages.filter(
+                (msg) => msg.timestamp !== timestamp
+            );
+        });
+    };
+
     return (
         <PendingMessagesContext.Provider
             value={{
                 pendingMessages,
+                pendingDirectMessages,
                 addPendingMessage,
                 removePendingMessageByTimestamp,
                 updatePendingMessage,
+                handleAddPendingDirectMessage,
+                handelRemovePendingDirectMessages,
             }}
         >
             {children}

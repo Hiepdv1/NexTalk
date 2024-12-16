@@ -7,6 +7,9 @@ import {
     IChannel,
     IConversation,
     IMember,
+    Member,
+    MemberRole,
+    IDirectMessage,
 } from "@/interfaces";
 import { useUser } from "@clerk/nextjs";
 import { redirect, useRouter } from "next/navigation";
@@ -14,6 +17,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { decrypt } from "@/utility/app.utility";
 import qs from "query-string";
+import { DirectMessage } from "@/interfaces/conversation.interface";
 
 interface IDataProvider {
     servers: IServer[];
@@ -60,6 +64,19 @@ interface IDataProvider {
         serverId: string;
         memberId: string;
     }) => void;
+
+    handleOnChangeRoleMember: (data: {
+        memberId: string;
+        serverId: string;
+        role: MemberRole;
+    }) => void;
+
+    handelSetMessageConversationArray: (
+        data: IDirectMessage[],
+        conversationId: string
+    ) => void;
+
+    handleAddMessageConversation: (data: IDirectMessage) => void;
 }
 
 const DataContext = createContext<IDataProvider | undefined>(undefined);
@@ -92,10 +109,22 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
 
             const data = resServersData.data as string;
 
-            const { servers } = JSON.parse(decrypt(data));
+            const { servers } = JSON.parse(decrypt(data)) as {
+                servers: Array<IServer>;
+            };
 
             if (servers) {
                 setServers(servers as any);
+
+                const serverIds = servers.map((server) => server.id);
+
+                const res = await api.post("/conversations/by-servers", {
+                    serverIds,
+                });
+
+                const conversations = JSON.parse(decrypt(res.data));
+
+                setConversations(conversations);
             }
 
             setProfile(resProfile.data as any);
@@ -199,6 +228,28 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             channel.messages = [...channel.messages, ...messages];
 
             return cloneServers;
+        });
+    };
+
+    const handelSetMessageConversationArray = (
+        data: IDirectMessage[],
+        conversationId: string
+    ) => {
+        setConversations((prevConversaions) => {
+            const cloneConversations = [...prevConversaions];
+
+            const conversation = cloneConversations.find(
+                (con) => con.id === conversationId
+            );
+
+            if (!conversation) return cloneConversations;
+
+            conversation.directMessages = [
+                ...conversation.directMessages,
+                ...data,
+            ];
+
+            return cloneConversations;
         });
     };
 
@@ -345,6 +396,31 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         });
     };
 
+    const handleAddMessageConversation = (data: IDirectMessage) => {
+        setConversations((prevConversations) => {
+            const cloneConversation = [...prevConversations];
+
+            const conversation = cloneConversation.find(
+                (con) => con.id === data.conversationId
+            );
+
+            if (!conversation) return prevConversations;
+
+            const directMessage = conversation.directMessages.find(
+                (msg) => msg.id === data.id
+            );
+
+            if (directMessage) return prevConversations;
+
+            conversation.directMessages = [
+                data,
+                ...conversation.directMessages,
+            ];
+
+            return cloneConversation;
+        });
+    };
+
     const handleAddNewMemberInServer = (data: IMember) => {
         setServers((prevServers) => {
             const cloneServers = [...prevServers];
@@ -402,6 +478,36 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         });
     };
 
+    const handleOnChangeRoleMember = ({
+        memberId,
+        role,
+        serverId,
+    }: {
+        memberId: string;
+        serverId: string;
+        role: MemberRole;
+    }) => {
+        setServers((prevServers) => {
+            const cloneServers = [...prevServers];
+
+            const server = cloneServers.find(
+                (server) => server.id === serverId
+            );
+
+            if (!server) return prevServers;
+
+            const member = server.members.find(
+                (member) => member.id === memberId
+            );
+
+            if (!member) return prevServers;
+
+            member.role = role;
+
+            return cloneServers;
+        });
+    };
+
     if (isLoading) {
         return null;
     }
@@ -425,6 +531,9 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 handleAddConversation,
                 handleAddNewMemberInServer,
                 handleRemoveMemberInServer,
+                handleOnChangeRoleMember,
+                handelSetMessageConversationArray,
+                handleAddMessageConversation,
             }}
         >
             {children}

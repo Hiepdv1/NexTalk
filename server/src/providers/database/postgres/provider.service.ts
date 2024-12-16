@@ -23,7 +23,7 @@ export class PostgresDatabaseProviderService
           console.error('Error during keep-alive ping:', error);
         }
       },
-      1 * 60 * 1000
+      3 * 60 * 1000
     );
   }
 

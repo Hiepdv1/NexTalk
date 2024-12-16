@@ -148,6 +148,9 @@ export interface IDirectMessage {
     content: string;
     fileUrl?: string;
     memberId: string;
+    type: MessageType;
+    posterUrl?: string;
+    member: IMember;
     conversationId: string;
     createdAt: Date;
     updatedAt: Date;
