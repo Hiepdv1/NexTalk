@@ -6,14 +6,16 @@ import { LoggerCustom } from './common/utils/logging.service';
 import { CustomValidationMessages } from './common/pipes/Custom.validation';
 import * as bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
-import { AllExceptionsFilter } from './common/exceptions/all-exception.filter';
 import { SocketAdapter } from './providers/Adapter/socket.adapter';
+import { HttpExceptionsFilter } from './common/exceptions/http-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(MainModule, { bodyParser: true });
   const configService = app.get(ConfigService);
   const port = configService.get<number>('APP_PORT');
+
   app.useWebSocketAdapter(new SocketAdapter(app));
+  app.useGlobalFilters(new HttpExceptionsFilter(configService));
 
   app.use(cookieParser());
   app.enableCors({
@@ -30,8 +32,6 @@ async function bootstrap() {
       exceptionFactory: CustomValidationMessages,
     })
   );
-
-  app.useGlobalFilters(new AllExceptionsFilter(configService));
 
   await app.listen(port);
 }

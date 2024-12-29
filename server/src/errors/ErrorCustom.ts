@@ -7,6 +7,15 @@ import {
   InternalServerErrorException,
   HttpException,
 } from '@nestjs/common';
+import {
+  BaseWsException,
+  WsBadRequestException,
+  WsConflictException,
+  WsForbiddenException,
+  WsInternalServerErrorException,
+  WsNotFoundException,
+  WsUnauthorizedException,
+} from './WsError';
 
 export enum ErrorType {
   BAD_REQUEST = 'BAD_REQUEST',
@@ -154,7 +163,7 @@ export class ErrorCustom extends Error {
   }
 
   public static fromNestError(
-    error: HttpException,
+    error: HttpException | BaseWsException,
     path?: string
   ): ErrorCustom {
     const status = error.getStatus();
@@ -169,17 +178,35 @@ export class ErrorCustom extends Error {
     let errorType = ErrorType.UNKNOWN;
     let isOperational = true;
 
-    if (error instanceof BadRequestException) {
+    if (
+      error instanceof BadRequestException ||
+      error instanceof WsBadRequestException
+    ) {
       errorType = ErrorType.BAD_REQUEST;
-    } else if (error instanceof UnauthorizedException) {
+    } else if (
+      error instanceof UnauthorizedException ||
+      error instanceof WsUnauthorizedException
+    ) {
       errorType = ErrorType.UNAUTHORIZED;
-    } else if (error instanceof ForbiddenException) {
+    } else if (
+      error instanceof ForbiddenException ||
+      error instanceof WsForbiddenException
+    ) {
       errorType = ErrorType.FORBIDDEN;
-    } else if (error instanceof NotFoundException) {
+    } else if (
+      error instanceof NotFoundException ||
+      error instanceof WsNotFoundException
+    ) {
       errorType = ErrorType.NOT_FOUND;
-    } else if (error instanceof ConflictException) {
+    } else if (
+      error instanceof ConflictException ||
+      error instanceof WsConflictException
+    ) {
       errorType = ErrorType.CONFLICT;
-    } else if (error instanceof InternalServerErrorException) {
+    } else if (
+      error instanceof InternalServerErrorException ||
+      error instanceof WsInternalServerErrorException
+    ) {
       errorType = ErrorType.INTERNAL;
       isOperational = false;
     }

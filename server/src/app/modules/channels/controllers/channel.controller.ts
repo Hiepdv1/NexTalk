@@ -208,7 +208,7 @@ export class ChannelController {
   public async messageChannelUploadFile(
     @UploadedFile(
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 1073741824 })
+        .addMaxSizeValidator({ maxSize: 104857600 })
         .build({
           errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         })

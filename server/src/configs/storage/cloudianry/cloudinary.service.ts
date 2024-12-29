@@ -6,7 +6,7 @@ import {
   UploadApiResponse,
 } from 'cloudinary';
 import { ICloudinaryFile } from './cloudinary.config';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import axios from 'axios';
 
 interface ISize {
@@ -89,9 +89,12 @@ export class CloudinaryService {
   public async createThumbnailFromVideo(
     publicId: string,
     timestamp: string,
-    resize?: { width: number; height: number }
+    resize?: { width: number; height: number },
+    maxRetries = 20,
+    retryDelay = 10000
   ): Promise<Buffer> {
-    return new Promise(async (resolve, reject) => {
+    let attempt = 0;
+    while (attempt < maxRetries) {
       try {
         const thumbnailUrl = cloudinary.url(publicId, {
           resource_type: 'video',
@@ -101,14 +104,21 @@ export class CloudinaryService {
           crop: 'scale',
           format: 'jpg',
         });
+
         const response = await axios.get(thumbnailUrl, {
           responseType: 'arraybuffer',
         });
-        resolve(Buffer.from(response.data));
-      } catch (error) {
-        reject(error);
+
+        if (response.status === 200) {
+          console.log('Thumbnail created successfully with attempt: ', attempt);
+          return Buffer.from(response.data);
+        }
+        attempt++;
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      } catch {
+        throw new BadRequestException('Failed to create thumbnail from video');
       }
-    });
+    }
   }
 
   public async uploadBuffer(

@@ -76,7 +76,7 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
             )}
 
             {channel.type === channelType.VIDEO && (
-                <VideoCall roomId={params.channelId} />
+                <VideoCall roomId={params.channelId} currentProfile={profile} />
             )}
         </div>
     );

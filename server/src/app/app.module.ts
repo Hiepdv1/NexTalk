@@ -25,7 +25,6 @@ import connectRedis from 'connect-redis';
 import session from 'express-session';
 import { RedisClient } from 'ioredis/built/connectors/SentinelConnector/types';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { WebRtcModule } from './modules/webRTC/webRtc.module';
 
 @Module({
   imports: [
@@ -48,7 +47,6 @@ import { WebRtcModule } from './modules/webRTC/webRtc.module';
     ConversationModule,
     SocketModule,
     NestDropboxModule,
-    WebRtcModule,
     ThrottlerModule.forRoot([
       {
         name: 'short',

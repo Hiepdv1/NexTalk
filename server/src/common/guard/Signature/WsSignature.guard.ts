@@ -88,10 +88,7 @@ export class WsSignatureGuard implements CanActivate {
       if (!this.validateSignature(messageParam, signature, clientKey))
         return false;
 
-      this.saveNonce(nonce).catch((err) => {
-        this.logger.error(`Save nonce failed: ${err}`);
-        throw err;
-      });
+      await this.saveNonce(nonce);
 
       return true;
     } catch (error) {

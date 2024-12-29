@@ -1,27 +1,25 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  Logger,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BaseExceptionFilter } from '@nestjs/core';
 import { Request, Response } from 'express';
 import { ErrorCustom } from 'src/errors/ErrorCustom';
 
 @Catch()
-export class HttpExceptionsFilter implements ExceptionFilter {
+export class HttpExceptionsFilter extends BaseExceptionFilter {
   private readonly logger = new Logger(HttpExceptionsFilter.name);
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(private readonly configService: ConfigService) {
+    super();
+  }
 
   async catch(exception: any, host: ArgumentsHost) {
+    super.catch(exception, host);
+
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();
     const isProduction =
       this.configService.get<string>('NODE_ENV') === 'production';
-
     try {
       const error = this.normalizeError(exception, req);
       this.logFormattedError(error, req, isProduction);

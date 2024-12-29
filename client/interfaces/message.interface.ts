@@ -6,6 +6,8 @@ export interface Profile {
     name: string;
     imageUrl: string;
     email: string;
+    createdAt: Date;
+    updatedAt: Date;
 }
 
 export interface Member {

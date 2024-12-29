@@ -8,17 +8,29 @@ export class AuthService {
     private readonly databaseService: PostgresDatabaseProviderService
   ) {}
 
-  async createProfile(data: Prisma.ProfileCreateInput) {
+  public async createProfile(data: Prisma.ProfileCreateInput) {
     return this.databaseService.profile.create({ data });
   }
 
-  async findUserById(userId?: string) {
+  public async findUserById(userId?: string) {
     return this.databaseService.profile.findUnique({
       where: { userId },
     });
   }
 
-  async findUserByProfileId(profileId: string) {
+  public async findManyUsersByUserId(userIds: Array<string>) {
+    const profiles = await this.databaseService.profile.findMany({
+      where: {
+        userId: {
+          in: userIds,
+        },
+      },
+    });
+
+    return profiles;
+  }
+
+  public async findUserByProfileId(profileId: string) {
     return this.databaseService.profile.findUnique({
       where: { id: profileId },
     });

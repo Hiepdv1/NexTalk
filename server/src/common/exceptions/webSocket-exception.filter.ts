@@ -1,19 +1,18 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  Logger,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { BaseWsExceptionFilter } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { ErrorCustom, ErrorType } from 'src/errors/ErrorCustom';
+import { BaseWsException } from 'src/errors/WsError';
 
 @Catch()
-export class WebSocketExceptionFilter implements ExceptionFilter {
+export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
   private readonly logger = new Logger();
+  private readonly configService = new ConfigService();
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor() {
+    super();
+  }
 
   async catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToWs();
@@ -26,7 +25,9 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
       const error = this.normalizeError(exception, client, isProduction, event);
       this.formatErrorLog(error, client, isProduction, event);
 
+      console.log('Emitting error to client...');
       client.emit('error', error.toJSON(isProduction));
+      console.log('Error emitted successfully');
     } catch (unexpectedError) {
       const fallbackError = new ErrorCustom(
         'An unexpected error occurred',
@@ -46,6 +47,8 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
 
       client.emit('error', fallbackError.toJSON(isProduction));
     }
+
+    super.catch(exception, host);
   }
 
   private normalizeError(
@@ -56,12 +59,8 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
   ): ErrorCustom {
     const path = `socket:${client.nsp.name}${event ? `/${event}` : ''}`;
 
-    if (exception instanceof ErrorCustom) {
-      return exception;
-    }
-
-    if (exception instanceof HttpException) {
-      return ErrorCustom.fromNestError(exception, path);
+    if (exception instanceof BaseWsException) {
+      return ErrorCustom.fromNestError(exception);
     }
 
     if (exception.message?.includes('connect() already called')) {
@@ -132,6 +131,7 @@ export class WebSocketExceptionFilter implements ExceptionFilter {
     event?: string
   ) {
     const errorLog = [
+      '\n',
       '╔════════════════════════ WebSocket Error Log ════════════════════════',
       `║ Timestamp: ${new Date().toISOString()}`,
       `║ Error Type: ${error.errorType}`,

@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import {
     Tooltip,
     TooltipContent,
@@ -9,27 +10,24 @@ import {
 
 interface ActionTooltipProps {
     label: string;
-    children: React.ReactNode;
+    children: React.ReactElement | null;
     side?: "top" | "bottom" | "left" | "right";
     align?: "start" | "center" | "end";
 }
 
-export const ActionTooltip = ({
-    label,
-    children,
-    align,
-    side,
-}: ActionTooltipProps) => {
-    return (
-        <TooltipProvider>
-            <Tooltip delayDuration={50}>
-                <TooltipTrigger asChild>{children}</TooltipTrigger>
-                <TooltipContent side={side} align={align}>
-                    <p className="font-semibold text-sm capitalize">
-                        {label.toLowerCase()}
-                    </p>
-                </TooltipContent>
-            </Tooltip>
-        </TooltipProvider>
-    );
-};
+export const ActionTooltip = React.memo(
+    ({ label, children, align, side }: ActionTooltipProps) => {
+        return (
+            <TooltipProvider>
+                <Tooltip delayDuration={50}>
+                    <TooltipTrigger asChild>{children}</TooltipTrigger>
+                    <TooltipContent side={side} align={align}>
+                        <p className="font-semibold text-sm capitalize">
+                            {label.toLowerCase()}
+                        </p>
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+        );
+    }
+);
