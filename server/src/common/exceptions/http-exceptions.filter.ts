@@ -13,8 +13,6 @@ export class HttpExceptionsFilter extends BaseExceptionFilter {
   }
 
   async catch(exception: any, host: ArgumentsHost) {
-    super.catch(exception, host);
-
     const ctx = host.switchToHttp();
     const req = ctx.getRequest<Request>();
     const res = ctx.getResponse<Response>();

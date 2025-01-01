@@ -5,9 +5,9 @@ import { decrypt } from "@/utility/app.utility";
 import CallControls from "./call-controller";
 import { Profile } from "@/interfaces/message.interface";
 import MediaStreamComponent from "./mediastream";
-import { useData } from "../providers/data-provider";
 import { useRouter } from "next/navigation";
 import VideoScreenComponent from "./videoScreen";
+import { IServer } from "@/interfaces";
 
 const SERVER_STUNS = [
     {
@@ -23,6 +23,7 @@ interface IVideoCallProps {
     isAudioCall?: boolean;
     isVideoCall?: boolean;
     currentProfile: Profile;
+    servers: IServer[];
 }
 
 interface IStream {
@@ -49,10 +50,10 @@ const VideoCall = ({
     isAudioCall = true,
     isVideoCall = true,
     currentProfile,
+    servers,
 }: IVideoCallProps) => {
     const { sendMessage, socket } = useSocket();
     const { addListener, removeListener } = useSocketEvents();
-    const { servers } = useData();
     const router = useRouter();
 
     const [isVideoEnabling, setIsVideoEnabling] = useState<boolean>(false);
@@ -62,6 +63,9 @@ const VideoCall = ({
     const videoStreamRef = useRef<MediaStream | null>(null);
     const audioStreamRef = useRef<MediaStream | null>(null);
     const shareStreamRef = useRef<MediaStream | null>(null);
+    const controlBarRef = useRef<HTMLDivElement | null>(null);
+    const containerVideoRef = useRef<HTMLDivElement | null>(null);
+    const timeout = useRef<NodeJS.Timeout | null>(null);
     const peerConnections = useRef<
         Map<
             string,
@@ -79,34 +83,224 @@ const VideoCall = ({
 
     if (!sendMessage || !socket) return null;
 
-    const handleJoinedRoom = (data: string) => {
+    const handleJoinedRoom = async (data: string) => {
         const { activeProducers } = JSON.parse(decrypt(data)) as {
             activeProducers: Array<{
                 participantId: string;
                 userId: string;
                 profile: Profile;
+                producers: Array<{
+                    participantId: string;
+                    type: string;
+                    producerId: string;
+                    userId: string;
+                    kind: string;
+                }>;
             }>;
         };
 
         const listProducers = new Map<string, IStream>();
+        const broadcasts: Array<{
+            participantId: string;
+            producerId: string;
+            userId: string;
+            kind: string;
+            type: string;
+        }> = [];
 
-        activeProducers.forEach((producer) => {
+        activeProducers.forEach((info) => {
             const newStreamProducer = {
-                id: producer.profile.userId,
-                participantId: producer.participantId,
+                id: info.profile.userId,
+                participantId: info.participantId,
                 streams: [],
-                profile: producer.profile,
-                isLocal: socket.id === producer.participantId,
+                profile: info.profile,
+                isLocal: socket.id === info.participantId,
                 isCamera: false,
                 isMic: false,
+                producers: info.producers,
             };
 
-            listProducers.set(producer.participantId, newStreamProducer);
+            info.producers.forEach((producer) => {
+                broadcasts.push({
+                    participantId: info.participantId,
+                    producerId: producer.producerId,
+                    type: producer.type,
+                    userId: producer.userId,
+                    kind: producer.kind,
+                });
+            });
+
+            listProducers.set(info.participantId, newStreamProducer);
         });
 
         setConsumers((prev) => {
             const newMap = new Map([...prev, ...listProducers]);
             return newMap;
+        });
+
+        await handleFetchBroadcasts(broadcasts);
+    };
+
+    const handleFetchBroadcasts = async (
+        producersActive: Array<{
+            participantId: string;
+            producerId: string;
+            userId: string;
+            type: string;
+            kind: string;
+        }>
+    ) => {
+        const createPeers = producersActive.map(async (info) => {
+            const { participantId, producerId, type, userId, kind } = info;
+
+            return new Promise<{
+                peer: RTCPeerConnection;
+                sdp: any;
+                participantId: string;
+                producerId: string;
+                userId: string;
+            }>((resolve) => {
+                const peer = new RTCPeerConnection({
+                    iceServers: SERVER_STUNS,
+                });
+
+                peer.ontrack = (e: RTCTrackEvent) => {
+                    const streams = e.streams;
+
+                    if (type === "screen") {
+                        const combinedStream = new MediaStream();
+
+                        streams.forEach((stream) => {
+                            stream.getTracks().forEach((track) => {
+                                combinedStream.addTrack(track);
+                            });
+                        });
+
+                        const screenSharing = {
+                            id: userId,
+                            isLocal: currentProfile.userId === userId,
+                            participantId,
+                            stream: combinedStream,
+                            producerId,
+                            isScreenBroadcasting: socket.id !== participantId,
+                        };
+
+                        setConsumerScreens(screenSharing);
+                        setIsScreenSharing(true);
+                        console.log("setConsumerScreens Updated");
+                    } else {
+                        const combinedStream = new MediaStream();
+
+                        streams.forEach((stream) => {
+                            stream.getTracks().forEach((track) => {
+                                combinedStream.addTrack(track);
+                            });
+                        });
+
+                        setConsumers((prev) => {
+                            const newMap = new Map(prev);
+
+                            const existingMember = newMap.get(participantId);
+
+                            if (existingMember) {
+                                existingMember.streams = [
+                                    ...existingMember.streams,
+                                    combinedStream,
+                                ];
+                                existingMember.isMic = type === "audio";
+                                existingMember.isCamera = type === "video";
+                            }
+
+                            return newMap;
+                        });
+                        console.log("Consumer updated");
+                    }
+                };
+
+                peer.onnegotiationneeded = async () => {
+                    const offer = await peer.createOffer();
+                    await peer.setLocalDescription(offer);
+
+                    resolve({
+                        peer,
+                        sdp: peer.localDescription,
+                        participantId,
+                        producerId,
+                        userId,
+                    });
+                };
+
+                const existingPeerParticipant =
+                    peerConnections.current.get(participantId);
+
+                const newPeer = {
+                    isLocal: false,
+                    peer,
+                    producerId,
+                };
+
+                if (existingPeerParticipant) {
+                    existingPeerParticipant.push(newPeer);
+                } else {
+                    peerConnections.current.set(participantId, [newPeer]);
+                }
+
+                kind.split("/").forEach((k) => {
+                    console.log("Kind: ", k);
+                    peer.addTransceiver(k, { direction: "recvonly" });
+                });
+            });
+        });
+
+        const listInfoPeers = await Promise.all(createPeers);
+
+        const message = new Promise<string>((resolve) => {
+            socket.once("broadcasts", (message) => {
+                resolve(message);
+            });
+        });
+
+        const data = listInfoPeers.map((infoPeer) => {
+            return {
+                participantId: infoPeer.participantId,
+                producerId: infoPeer.producerId,
+                sdp: infoPeer.sdp,
+            };
+        });
+
+        sendMessage(
+            "fetch-existing-producers",
+            { channelId: roomId, data },
+            "POST"
+        );
+
+        const messageRes = await message;
+
+        const decryptMessage = JSON.parse(decrypt(messageRes)) as Array<{
+            consumerId: string;
+            kind: string;
+            participantId: string;
+            producerId: string;
+            sdp: RTCSessionDescription;
+        }>;
+
+        listInfoPeers.forEach((peerInfo) => {
+            const consumer = decryptMessage.find(
+                (p) => p.participantId === peerInfo.participantId
+            );
+
+            if (consumer) {
+                const desc = new RTCSessionDescription(consumer.sdp);
+                peerInfo.peer
+                    .setRemoteDescription(desc)
+                    .catch((e: unknown) => console.log(e));
+
+                consumer.kind.split("/").forEach((k) => {
+                    peerInfo.peer.addTransceiver(k, { direction: "recvonly" });
+                });
+            } else {
+                console.error("Peer not found");
+            }
         });
     };
 
@@ -309,6 +503,39 @@ const VideoCall = ({
                 track.enabled = false;
             });
         }
+    };
+
+    const disConnectPeer = ({
+        participantId,
+        producerId,
+    }: {
+        participantId: string;
+        producerId?: string;
+    }) => {
+        const peer = peerConnections.current.get(participantId);
+
+        if (!peer) {
+            console.warn("Peer not found");
+            return;
+        }
+
+        const producer = peer.find(
+            (peerInfo) => peerInfo.producerId === producerId
+        );
+
+        if (!producer) {
+            peer.forEach((peerInfo) => peerInfo.peer.close());
+            peerConnections.current.delete(participantId);
+            return;
+        }
+
+        producer.peer.close();
+
+        const filterPeer = peer.filter(
+            (peerInfo) => peerInfo.producerId !== producerId
+        );
+
+        peerConnections.current.set(participantId, filterPeer);
     };
 
     const createPeer = (stream: MediaStream, type: string) => {
@@ -519,9 +746,23 @@ const VideoCall = ({
     const onLeaveRoom = () => {
         const server = servers[0];
 
-        if (isScreenSharing && consumerScreens) {
+        if (
+            isScreenSharing &&
+            consumerScreens &&
+            socket.id === consumerScreens.participantId
+        ) {
             consumerScreens.stream.getTracks().forEach((track) => track.stop());
             handleTurnOffScreenSharing();
+        }
+
+        const peers = peerConnections.current.get(socket.id as string);
+
+        if (peers) {
+            peers.forEach((peerInfo) => {
+                if (peerInfo.peer.connectionState !== "closed") {
+                    peerInfo.peer.close();
+                }
+            });
         }
 
         if (server) {
@@ -540,17 +781,14 @@ const VideoCall = ({
     };
 
     const handleTurnOffScreenSharing = () => {
-        if (!consumerScreens) return;
         const infoPeer = peerConnections.current.get(socket.id as string);
 
-        consumerScreens;
-
-        consumerScreens.stream.getTracks().forEach((track) => track.stop());
+        consumerScreens?.stream.getTracks().forEach((track) => track.stop());
         setConsumerScreens(null);
 
         const existingPeer = infoPeer?.find((peer) => peer.isLocal);
 
-        if (existingPeer) {
+        if (existingPeer && infoPeer) {
             existingPeer.peer.close();
             sendMessage(
                 "peer-disconnected",
@@ -561,7 +799,13 @@ const VideoCall = ({
                 },
                 "POST"
             );
-            peerConnections.current.delete(socket.id as string);
+            peerConnections.current.set(
+                socket.id as string,
+                infoPeer?.filter(
+                    (peerInfo) =>
+                        peerInfo.producerId !== existingPeer.producerId
+                )
+            );
             console.log("PeerDisconnected");
         }
 
@@ -587,9 +831,10 @@ const VideoCall = ({
 
             stream.getTracks().forEach((track) => {
                 track.onended = () => {
+                    handleTurnOffScreenSharing();
                     shareStreamRef.current = null;
 
-                    handleTurnOffScreenSharing();
+                    console.log("Ended");
                 };
             });
 
@@ -622,22 +867,36 @@ const VideoCall = ({
         }
     };
 
-    const handlePeerDisconnected = (message: string) => {
+    const handlePeerDisconnectedLeaveRoom = (message: string) => {
         const { participantId } = JSON.parse(decrypt(message)) as {
             participantId: string;
         };
 
-        setConsumers((prev) => {
-            prev.delete(participantId);
+        console.log("Peer Leave Room disconnected: ", participantId);
+        console.log(
+            "ParticipantId Broadcast: ",
+            consumerScreens?.participantId
+        );
 
+        if (consumerScreens?.participantId !== participantId) {
+            disConnectPeer({
+                participantId,
+            });
+            setIsScreenSharing(false);
+            setConsumerScreens(null);
+        }
+
+        disConnectPeer({
+            participantId,
+        });
+
+        setConsumers((prev) => {
             const newMap = new Map(prev);
+
+            newMap.delete(participantId);
 
             return newMap;
         });
-
-        setConsumerScreens(null);
-
-        setIsScreenSharing(false);
     };
 
     const handleProducerDisconnected = (message: string) => {
@@ -647,9 +906,10 @@ const VideoCall = ({
             producerId: string;
         };
 
+        console.log("Producer Disconnected Data: ", data);
+
         if (data.type === "screen") {
             setConsumerScreens(null);
-
             setIsScreenSharing(false);
         } else {
             setConsumers((prev) => {
@@ -697,18 +957,51 @@ const VideoCall = ({
         });
     };
 
+    const onTouchScreen = () => {
+        if (controlBarRef.current?.classList.contains("hidden")) {
+            if (timeout.current) {
+                clearTimeout(timeout.current);
+                console.log("Clear timeout");
+            }
+
+            if (controlBarRef.current) {
+                controlBarRef.current.classList.remove("hidden");
+                isScreenSharing &&
+                    containerVideoRef.current?.classList.remove("hidden");
+
+                timeout.current = setTimeout(() => {
+                    controlBarRef.current?.classList.add("hidden");
+                    isScreenSharing &&
+                        containerVideoRef.current?.classList.add("hidden");
+                }, 2000);
+            }
+            return;
+        }
+
+        controlBarRef.current?.classList.add("hidden");
+        if (isScreenSharing) {
+            containerVideoRef.current?.classList.add("hidden");
+        }
+    };
+
+    const handleTouchBarControl = () => {
+        if (timeout.current) {
+            clearTimeout(timeout.current);
+            console.log("Clear timeout touch bar");
+        }
+    };
+
     const setupListeners = () => {
         addListener("joined-room", handleJoinedRoom);
         addListener("new-member:info", handleNewMember);
         addListener("error", handleError);
         addListener("new-producer", handleNewProducer);
-        addListener("peer-disconnected", handlePeerDisconnected);
+        addListener("leave-room-disconnected", handlePeerDisconnectedLeaveRoom);
         addListener("producer-disconnected", handleProducerDisconnected);
         addListener("updated-status-change", handleUpdatedMediaStreamStatus);
 
         return () => {
             removeListener("new-producer", handleNewProducer);
-            removeListener("peer-disconnected", handlePeerDisconnected);
             removeListener("producer-disconnected", handleProducerDisconnected);
             removeListener("joined-room", handleJoinedRoom);
             removeListener("error", handleError);
@@ -717,8 +1010,8 @@ const VideoCall = ({
                 handleUpdatedMediaStreamStatus
             );
 
-            sendMessage("leave-room", { channelId: roomId }, "POST");
             stopMediaStream();
+            sendMessage("leave-room", { channelId: roomId }, "POST");
         };
     };
 
@@ -736,11 +1029,12 @@ const VideoCall = ({
     console.log("ConsumersScreen: ", consumerScreens);
 
     return (
-        <div className="flex-1 flex flex-col p-4">
+        <div className={"flex-1 flex flex-col md:p-4"}>
             <div
+                onTouchStart={onTouchScreen}
                 className={
                     isScreenSharing
-                        ? "flex-1 grid grid-cols-[80%,20%] gap-x-2"
+                        ? "relative flex-1 flex flex-col md:grid md:grid-cols-[80%,20%] gap-x-2"
                         : "w-full h-full flex items-center justify-evenly flex-1 flex-wraps"
                 }
             >
@@ -748,7 +1042,14 @@ const VideoCall = ({
                     <VideoScreenComponent consumerScreens={consumerScreens} />
                 )}
 
-                <div className="w-full h-full">
+                <div
+                    ref={containerVideoRef}
+                    className={`w-full h-full md:relative md:block ${
+                        isScreenSharing
+                            ? "absolute top-0 right-0 z-50 w-1/3 h-1/3 md:w-full md:block"
+                            : ""
+                    }`}
+                >
                     {[...consumers.values()].map((consumerInfo) => {
                         return (
                             <MediaStreamComponent
@@ -766,7 +1067,11 @@ const VideoCall = ({
                 </div>
             </div>
 
-            <div className="fixed left-0 right-0 bottom-3 md:relative flex justify-center items-center my-4">
+            <div
+                onTouchStart={handleTouchBarControl}
+                ref={controlBarRef}
+                className="hidden z-50 md:flex fixed left-0 right-0 bottom-3 md:relative justify-center items-center my-4"
+            >
                 <CallControls
                     isAudioEnabled={isAudioEnabling}
                     isVideoEnabled={isVideoEnabling}

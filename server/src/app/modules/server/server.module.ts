@@ -8,6 +8,7 @@ import { SocketModule } from '../socket/socket.module';
 import { ProfileCacheService } from '../auth/services/profileCache.service';
 import { ServerCacheService } from './services/serverCache.service';
 import { RedisCacheService } from 'src/providers/cache/redis.cache';
+import { MemberService } from '../members/services/member.service';
 
 @Module({
   imports: [SocketModule],
@@ -20,6 +21,7 @@ import { RedisCacheService } from 'src/providers/cache/redis.cache';
     ProfileCacheService,
     ServerCacheService,
     RedisCacheService,
+    MemberService,
   ],
   exports: [ServerCacheService, RedisCacheService],
 })

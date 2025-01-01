@@ -30,7 +30,12 @@ const InviteCodePage = ({ params }: IInviteCodePageProps) => {
     const router = useRouter();
     const [isFetched, setIsFetched] = useState(false);
     const [serverData, setServerData] = useState<
-        | { server: IResponseServerData; members: number; isMember: boolean }
+        | {
+              server: IResponseServerData;
+              members: number;
+              isMember: boolean;
+              online: number;
+          }
         | undefined
     >();
 
@@ -118,7 +123,7 @@ const InviteCodePage = ({ params }: IInviteCodePageProps) => {
                     <div className="flex items-center justify-center my-4">
                         <div className="mr-9 rounded-xl bg-[#303236] w-full max-w-40 p-1 flex items-center justify-center">
                             <div className="mr-3 h-3 w-3 rounded-full bg-[#64B285]" />
-                            <span>0 Online</span>
+                            <span>{serverData?.online} Online</span>
                         </div>
                         <div className="rounded-xl bg-[#303236] w-full max-w-40 p-1 flex items-center justify-center">
                             <div className="mr-3 h-3 w-3 rounded-full bg-[#73767C]" />

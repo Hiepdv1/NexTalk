@@ -7,7 +7,8 @@ import { useData } from "@/components/providers/data-provider";
 import MediaRoom from "@/components/ui/media-room";
 import VideoCall from "@/components/videoCall/video-call";
 import { channelType } from "@/interfaces";
-import { Fragment } from "react";
+import { useRouter } from "next/navigation";
+import { Fragment, useEffect } from "react";
 
 interface IChannelIdPageProps {
     params: {
@@ -17,7 +18,8 @@ interface IChannelIdPageProps {
 }
 
 const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
-    const { servers, profile, conversations } = useData();
+    const { servers, profile, conversations, isInteracted } = useData();
+    const router = useRouter();
 
     const server = servers.find((server) => server.id === params.serverId);
 
@@ -30,6 +32,29 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
     );
 
     if (!server || !channel || !profile || !member) {
+        return null;
+    }
+
+    useEffect(() => {
+        if (
+            (channel.type === channelType.AUDIO ||
+                channel.type === channelType.VIDEO) &&
+            !isInteracted.current
+        ) {
+            router.prefetch(
+                `/servers/${servers[0].id}/channels/${servers[0].channels[0].id}`
+            );
+            router.push(
+                `/servers/${servers[0].id}/channels/${servers[0].channels[0].id}`
+            );
+        }
+    }, []);
+
+    if (
+        (channel.type === channelType.AUDIO ||
+            channel.type === channelType.VIDEO) &&
+        !isInteracted.current
+    ) {
         return null;
     }
 
@@ -76,7 +101,11 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
             )}
 
             {channel.type === channelType.VIDEO && (
-                <VideoCall roomId={params.channelId} currentProfile={profile} />
+                <VideoCall
+                    servers={servers}
+                    roomId={params.channelId}
+                    currentProfile={profile}
+                />
             )}
         </div>
     );

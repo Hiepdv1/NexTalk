@@ -37,7 +37,7 @@ const VideoScreenComponent = ({
     }, [consumerScreens, videoRef.current, audioRef.current]);
 
     return (
-        <div className="bg-black">
+        <div className={`bg-black md:mb-0 h-full`}>
             <div className="h-full w-full">
                 <video
                     ref={videoRef}

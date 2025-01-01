@@ -18,6 +18,14 @@ export class CallService {
 
   constructor() {}
 
+  public getMembersOnline(channelId: string) {
+    const channel = this.ChannelStore.get(channelId);
+
+    if (!channel) return 0;
+
+    return channel.participants.size;
+  }
+
   public async joinRoom({
     roomId,
     socketId,
@@ -270,6 +278,9 @@ export class CallService {
       room.consumers.set(socketId, [newConsumer]);
     }
 
+    console.log('New Consumer: ', newConsumer);
+    console.log('SocketId New Consumer: ', socketId);
+
     return {
       sdp: peer.localDescription,
       kind: producer.kind,
@@ -278,6 +289,7 @@ export class CallService {
       userId: participants.userId,
       type: producer.type,
       consumerId,
+      producerId,
     };
   }
 
@@ -296,6 +308,9 @@ export class CallService {
       producer.peer.close();
       return producer.id;
     });
+
+    console.log('ProducerIdsRemove: ', producerIdsToRemove);
+
     channel.participants.delete(socketId);
 
     channel.consumers.forEach((consumerList, consumerId) => {
@@ -313,6 +328,18 @@ export class CallService {
         channel.consumers.set(consumerId, updatedConsumers);
       }
     });
+
+    const currentConsumers = channel.consumers.get(socketId);
+
+    if (currentConsumers && currentConsumers.length > 0) {
+      currentConsumers.forEach((consumer) => {
+        consumer.peer.close();
+      });
+    }
+
+    channel.consumers.delete(socketId);
+
+    console.log('Current Consumers: ', channel.consumers);
 
     if (channel.consumers.size === 0 && channel.participants.size === 0) {
       this.ChannelStore.delete(channelId);

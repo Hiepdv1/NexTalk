@@ -14,6 +14,7 @@ import { ActionTooltip } from "../action.tooltip";
 import { useModal } from "@/hooks/use-modal-store";
 import { MouseEvent } from "react";
 import Link from "next/link";
+import { useData } from "../providers/data-provider";
 
 interface IServerChannelProps {
     channel: IChannel;
@@ -28,6 +29,7 @@ const iconMap = {
 };
 
 const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
+    const { isInteracted } = useData();
     const { onOpen } = useModal();
     const params = useParams();
     const router = useRouter();
@@ -46,10 +48,16 @@ const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
         onOpen("DeleteChannel", { channel });
     };
 
+    const handleNavigate = () => {
+        if (!isInteracted.current) isInteracted.current = true;
+
+        router.prefetch(`/servers/${params?.serverId}/channels/${channel.id}`);
+        router.push(`/servers/${params?.serverId}/channels/${channel.id}`);
+    };
+
     return (
-        <Link
-            href={`/servers/${params?.serverId}/channels/${channel.id}`}
-            prefetch={true}
+        <button
+            onClick={handleNavigate}
             className={cn(
                 "group px-2 py-2 rounded-md flex items-center gap-x-2 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition mb-1",
                 params?.channelId === channel.id &&
@@ -87,7 +95,7 @@ const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
                     </ActionTooltip>
                 </div>
             )}
-        </Link>
+        </button>
     );
 };
 

@@ -29,6 +29,8 @@ import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ServerCacheService } from '../services/serverCache.service';
 import { MediaGateway } from '../../socket/gateway/Media.gateway';
+import { SocketService } from '../../socket/services/socket.service';
+import { MemberService } from '../../members/services/member.service';
 
 @Controller('/servers')
 export class ServerController {
@@ -40,7 +42,9 @@ export class ServerController {
     private readonly cloudinaryService: CloudinaryService,
     private readonly mediaGateway: MediaGateway,
     private readonly configService: ConfigService,
-    private readonly serverCacheService: ServerCacheService
+    private readonly serverCacheService: ServerCacheService,
+    private readonly socketService: SocketService,
+    private readonly memberService: MemberService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
   }
@@ -290,10 +294,18 @@ export class ServerController {
       throw new NotFoundException('The server or user does not exist');
     }
 
+    const userIds = [...this.socketService.USERS_ONLINE.values()];
+
+    const USERS_ONLINE = await this.memberService.CountMembersInServer({
+      userIds,
+      serverId: findServerWithMembers.server.id,
+    });
+
     return {
       server: findServerWithMembers.server,
       members: findServerWithMembers.members.length,
       isMember: findServerWithMembers.isMember,
+      online: USERS_ONLINE,
     };
   }
 

@@ -72,15 +72,14 @@ const MediaStreamComponent = ({
     };
 
     console.log("Streams: ", streams);
-
     console.log("IsScreenStream: ", isScreenShare);
 
     return (
         <div
             className={`${
                 isScreenShare
-                    ? "w-full relative h-1/4"
-                    : "sm:w-full sm:h-[415px] md:w-[480px] md:h-[320px] relative rounded-lg overflow-hidden"
+                    ? "absolute w-1/3 h-1/6 top-0 right-0 md:relative  md:w-auto md:h-1/4"
+                    : "w-full h-1/3 sm:w-full sm:h-[415px] md:w-[480px] md:h-[320px] relative rounded-lg overflow-hidden"
             } mb-2`}
         >
             {streams.map((stream) => {
@@ -90,7 +89,9 @@ const MediaStreamComponent = ({
 
             {!isVideoEnabling && (
                 <div className="absolute top-0 left-0 right-0 bottom-0">
-                    <div className="w-full h-full bg-slate-600 dark:bg-black flex items-center justify-center">
+                    <div
+                        className={`w-full h-full bg-slate-600 md:dark:bg-black flex items-center justify-center`}
+                    >
                         <Image
                             src={profile.imageUrl}
                             alt="Avatar/User"

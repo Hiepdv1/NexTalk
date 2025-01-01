@@ -34,7 +34,6 @@ import { NotFoundError } from 'rxjs';
 import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { ConversationCacheService } from '../../conversation/services/conversationCache.service';
 import { MessageType, Profile } from '@prisma/client';
-import { ChatService } from '../services/chat.service';
 import { DecryptDataInterceptor } from 'src/providers/interceptors/DecryptData.interceptor';
 import { DecryptDataPipe } from 'src/common/pipes/Decrypt-Data.pipe';
 import { CallService } from '../services/callService.service';
@@ -45,10 +44,15 @@ import {
   WsNotFoundException,
   WsUnauthorizedException,
 } from 'src/errors/WsError';
-import { CreateProducerDto, PeerDisconnectedDto } from '../dto/producer.dto';
+import {
+  CreateProducerDto,
+  FetchProducerExistingDto,
+  PeerDisconnectedDto,
+} from '../dto/producer.dto';
 import { WsValidationInterceptor } from 'src/providers/interceptors/WsValidation.interceptor';
 import { CreateConsumerForProducerDto } from '../dto/consumer.dto';
 import { MediaStatuChangeDto } from '../dto/mediaStream.dto';
+import { SocketService } from '../services/socket.service';
 
 @UseFilters(new WebSocketExceptionFilter())
 @WebSocketGateway({
@@ -73,7 +77,7 @@ export class MediaGateway
   private pingTimeout: NodeJS.Timeout;
 
   constructor(
-    private readonly socketService: ChatService,
+    private readonly socketService: SocketService,
     private readonly authWs: AuthWsMiddleware,
     private readonly authService: AuthService,
     private readonly serverService: ServerService,
@@ -124,7 +128,7 @@ export class MediaGateway
           this.SECRET_KEY
         );
 
-        socket.to(channelId).emit('peer-disconnected', encryptMessage);
+        socket.to(channelId).emit('leave-room-disconnected', encryptMessage);
       }
     } catch (err: unknown) {
       if (err instanceof BaseWsException) {
@@ -436,22 +440,38 @@ export class MediaGateway
       const key = [memberOneId, memberTwoId];
       key.sort();
 
-      const conversation = conversationCache.find(
+      let conversation = conversationCache.find(
         (con) =>
-          ((con.memberOneId === memberOneId ||
-            con.memberTwoId === memberOneId) &&
-            con.memberOneId === memberTwoId) ||
-          con.memberTwoId === memberTwoId
+          ((con.memberOneId === memberOneId &&
+            con.memberTwoId === memberTwoId) ||
+            con.memberOneId === memberTwoId) &&
+          con.memberTwoId === memberOneId
       );
 
-      if (!conversation)
-        throw new NotFoundException('The conversation does not exist');
+      if (!conversation) {
+        conversation = await this.conversationService.getOrCreateConversation(
+          memberOneId,
+          memberTwoId
+        );
+
+        if (!conversation) {
+          throw new WsNotFoundException(
+            "The memberOneId and memberTwoId doesn't have created conversation"
+          );
+        }
+
+        this.conversationCacheService.setAndOverrideConversationCache(
+          { serverId },
+          [...conversationCache, conversation]
+        );
+      }
 
       const encryptData = AppHelperService.encrypt(
         JSON.stringify({
           ...conversation,
           memberOne,
           memberTwo,
+          directMessages: [],
         }),
         this.SECRET_KEY
       );
@@ -702,12 +722,27 @@ export class MediaGateway
       participantId: string;
       userId?: string;
       profile?: Profile;
+      producers: Array<{
+        type: string;
+        producerId: string;
+        userId: string;
+        participantId: string;
+      }>;
     }> = [];
 
     for (const [participantId, producerInfo] of channel.participants) {
       activeProducers.push({
         participantId,
         userId: producerInfo.userId,
+        producers: producerInfo.producers.map((producer) => {
+          return {
+            type: producer.type,
+            producerId: producer.id,
+            userId: producer.userId,
+            participantId,
+            kind: producer.kind,
+          };
+        }),
       });
     }
 
@@ -814,6 +849,13 @@ export class MediaGateway
       this.SECRET_KEY
     );
 
+    console.log(
+      '------------------------------------------------------ Create Producers ---------------------------------------'
+    );
+    console.log('Current Channel: ', channel);
+    console.log('Current Consumers: ', channel.consumers);
+    console.log('Current Producers: ', channel.participants);
+
     socket.to(channelId).emit('new-producer', encryptNewProducer);
   }
 
@@ -839,6 +881,8 @@ export class MediaGateway
       producerId,
       socketId: socket.id,
     });
+
+    console.log('Consumer-for-producer: ', socket.id);
 
     consumerData.peer.oniceconnectionstatechange = () => {
       if (consumerData.peer.iceConnectionState === 'failed') {
@@ -888,15 +932,18 @@ export class MediaGateway
       this.SECRET_KEY
     );
 
-    socket.to(channelId).emit('peer-disconnected', encryptMessage);
+    socket.to(channelId).emit('leave-room-disconnected', encryptMessage);
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(new DecryptDataInterceptor(['message']))
+  @UseInterceptors(
+    new DecryptDataInterceptor(['message']),
+    new WsValidationInterceptor(PeerDisconnectedDto)
+  )
   @SubscribeMessage('peer-disconnected')
   public async handlePeerDisconnected(@ConnectedSocket() socket: Socket) {
-    const { channelId, producerId, type } = socket.data.decrypted
-      ?.message as PeerDisconnectedDto;
+    const { channelId, producerId, type } = socket.data
+      .validatedMessage as PeerDisconnectedDto;
 
     const channel = this.callService.getChannel(channelId);
 
@@ -944,67 +991,64 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(new DecryptDataInterceptor(['message']))
+  @UseInterceptors(
+    new DecryptDataInterceptor(['message']),
+    new WsValidationInterceptor(FetchProducerExistingDto)
+  )
   @SubscribeMessage('fetch-existing-producers')
   public async handleConsumers(@ConnectedSocket() socket: Socket) {
-    const { channelId, data } = socket.data.decrypted?.message;
-
-    if (!channelId || !data) {
-      throw new WsBadRequestException('channelId and data are required');
-    }
-
-    const participants = this.callService.getProducers(channelId).values();
+    const { channelId, data } = socket.data
+      .validatedMessage as FetchProducerExistingDto;
 
     const channel = this.callService.getChannel(channelId);
 
-    if (!channel) throw new WsNotFoundException('The channelId not found');
+    if (!channel) throw new WsNotFoundException("The Channel doesn't exist");
 
-    const consumers = [];
-
-    for (const participant of participants) {
-      for (const producer of participant.producers) {
-        if (producer.senderId !== socket.id) {
-          const producerData = data[producer.senderId];
-          if (producerData) {
-            const consumer = this.callService.createConsumer({
-              roomId: channelId,
-              participantId: producer.senderId,
-              sdp: producerData.sdp,
-              kind: producerData.kind,
-              producerId: producer.id,
-              socketId: socket.id,
-            });
-
-            consumers.push(consumer);
-          } else {
-            console.log('Producer not found');
-          }
-        }
-      }
-    }
-
-    const result = await Promise.all(consumers);
-
-    if (result.length > 0) {
-      const encryptData = AppHelperService.encrypt(
-        JSON.stringify(result),
-        this.SECRET_KEY
+    const listSdpConnectedConsumers = data.map((producerConnect) => {
+      const existingParticipant = channel.participants.get(
+        producerConnect.participantId
       );
 
-      socket.emit('consumers-created', encryptData);
-    }
+      if (!existingParticipant)
+        throw new WsNotFoundException('The participantId not found');
 
-    result.forEach((consumer) => {
-      consumer.peer.oniceconnectionstatechange = () => {
-        if (consumer.peer.iceConnectionState === 'failed') {
-          socket.emit('consumer-failed', {
-            message: 'Consumer failed',
-            producerId: consumer.participantId,
-            kind: consumer.kinds.join('/'),
-          });
-        }
+      const existingProducer = existingParticipant.producers.find(
+        (producer) => producer.id === producerConnect.producerId
+      );
+
+      if (!existingProducer)
+        throw new NotFoundException('The producerId not found');
+
+      const newConsumer = this.callService.createConsumer({
+        socketId: socket.id,
+        participantId: producerConnect.participantId,
+        kind: existingProducer.kind,
+        producerId: producerConnect.producerId,
+        roomId: channelId,
+        sdp: producerConnect.sdp,
+      });
+
+      return newConsumer;
+    });
+
+    const results = await Promise.all(listSdpConnectedConsumers);
+
+    const filterConsumerConnected = results.map((result) => {
+      return {
+        sdp: result.sdp,
+        kind: result.kind,
+        participantId: result.participantId,
+        producerId: result.producerId,
+        consumerId: result.consumerId,
       };
     });
+
+    const encryptMessage = AppHelperService.encrypt(
+      JSON.stringify(filterConsumerConnected),
+      this.SECRET_KEY
+    );
+
+    socket.emit('broadcasts', encryptMessage);
   }
 
   @UseGuards(WsCombinedGuard)

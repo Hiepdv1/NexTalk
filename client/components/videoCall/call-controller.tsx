@@ -47,7 +47,7 @@ const CallControls = ({
             <ActionTooltip label={isAudioEnabled ? "Mute" : "Unmute"}>
                 <button
                     onClick={onToggleAudio}
-                    className={`mx-4 w-12 h-12 ${
+                    className={`mx-2 md:mx-4 w-12 h-12 ${
                         isAudioEnabled ? "bg-rose-500" : "bg-gray-600"
                     } rounded-full flex items-center justify-center`}
                 >
@@ -62,7 +62,7 @@ const CallControls = ({
             <ActionTooltip label={isVideoEnabled ? "Camera off" : "Camera"}>
                 <button
                     onClick={onToggleVideo}
-                    className={`mx-4 w-12 h-12 ${
+                    className={`mx-2 md:mx-4 w-12 h-12 ${
                         isVideoEnabled ? "bg-rose-500" : "bg-gray-600"
                     } rounded-full flex items-center justify-center`}
                 >
@@ -78,7 +78,7 @@ const CallControls = ({
                 <ActionTooltip
                     label={"This participant is currently sharing their screen"}
                 >
-                    <p className="text-white mx-4 w-56 h-12 bg-rose-500 rounded-md flex items-center justify-center">
+                    <p className="text-white mx-4 md:w-56 md:h-12 bg-rose-500 rounded-md flex items-center justify-center">
                         <Monitor className="w-6 h-6 mr-2" />
                         <span>Screen Sharing Active</span>
                     </p>
@@ -97,22 +97,22 @@ const CallControls = ({
                                     isScreen: false,
                                 })
                             }
-                            className="mx-4 w-56 h-12 bg-rose-500 rounded-md flex items-center justify-center"
+                            className="mx-2 p-3 md:p-0 md:mx-4 md:w-56 md:h-12 bg-rose-500 rounded-md flex items-center justify-center"
                         >
                             <ScreenShareIcon className="w-6 h-6 mr-2" />
                             Stop sharing
                         </button>
                     ) : (
-                        <button className="mx-4 w-56 h-12 bg-gray-600 rounded-md flex items-center justify-center">
+                        <button className="p-3 md:p-0 mx-2 md:mx-4 md:w-56 md:h-12 bg-gray-600 rounded-md flex items-center justify-center">
                             <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                     <div className="flex items-center">
-                                        <ScreenShareOffIcon className="w-6 h-6 mr-2" />
+                                        <ScreenShareOffIcon className="md:w-6 md:h-6 mr-2" />
                                         Share screen
                                     </div>
                                 </DropdownMenuTrigger>
 
-                                <DropdownMenuContent className="w-56">
+                                <DropdownMenuContent className="md:w-56">
                                     <DropdownMenuItem
                                         onClick={() =>
                                             onShareScreen({
@@ -148,7 +148,7 @@ const CallControls = ({
             <ActionTooltip label="Leave room">
                 <button
                     onClick={onLeaveRoom}
-                    className="mx-4 w-12 h-12 bg-rose-500 rounded-full flex items-center justify-center"
+                    className="mx-2 md:mx-4 w-12 h-12 bg-rose-500 rounded-full flex items-center justify-center"
                 >
                     <DoorOpenIcon className="w-6 h-6" />
                 </button>

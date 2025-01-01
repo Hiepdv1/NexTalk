@@ -18,4 +18,23 @@ export class MemberService {
 
     return member;
   }
+
+  public async CountMembersInServer({
+    userIds,
+    serverId,
+  }: {
+    userIds: Array<string>;
+    serverId: string;
+  }) {
+    return this.db.member.count({
+      where: {
+        serverId,
+        profile: {
+          userId: {
+            in: userIds,
+          },
+        },
+      },
+    });
+  }
 }

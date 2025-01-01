@@ -192,6 +192,17 @@ export class ServerService {
     };
   }
 
+  public async getChannelInServer(serverId: string) {
+    return this.databaseService.server.findFirst({
+      where: {
+        id: serverId,
+      },
+      include: {
+        channels: true,
+      },
+    });
+  }
+
   public async GetFirstServer(profileId: string) {
     const firstServer = this.databaseService.server.findFirst({
       where: {

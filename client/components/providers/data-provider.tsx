@@ -13,16 +13,21 @@ import {
 } from "@/interfaces";
 import { useUser } from "@clerk/nextjs";
 import { redirect, useRouter } from "next/navigation";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, {
+    createContext,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import { usePathname } from "next/navigation";
 import { decrypt } from "@/utility/app.utility";
-import qs from "query-string";
-import { DirectMessage } from "@/interfaces/conversation.interface";
 
 interface IDataProvider {
     servers: IServer[];
     conversations: IConversation[];
     profile: IProfile | null;
+    isInteracted: React.MutableRefObject<boolean>;
 
     setProfile: (data: IProfile) => void;
     setServers: (data: IServer[]) => void;
@@ -89,6 +94,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     const router = useRouter();
     const [servers, setServers] = useState<IServer[]>([]);
     const [conversations, setConversations] = useState<IConversation[]>([]);
+    const isInteracted = useRef<boolean>(false);
 
     const [profile, setProfile] = useState<IProfile | null>(null);
     const pathname = usePathname();
@@ -518,6 +524,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 servers,
                 conversations,
                 profile,
+                isInteracted,
                 setProfile,
                 setServers,
                 setMessage,

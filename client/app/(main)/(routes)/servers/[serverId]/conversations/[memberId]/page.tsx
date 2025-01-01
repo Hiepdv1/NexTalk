@@ -6,7 +6,7 @@ import {
     Conversation,
     GetOrCreateConversationResponse,
 } from "@/interfaces/conversation.interface";
-import { useRouter } from "next/navigation";
+import { notFound, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import ChatHeader from "@/components/chat/chat-header";
 import { useData } from "@/components/providers/data-provider";
@@ -34,10 +34,11 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
     if (!server) return;
 
     const currentMember = server.members.find(
-        (member) => member.profileId === profile?.id
+        (member) =>
+            member.profileId === profile?.id && member.id !== params.memberId
     );
 
-    if (!currentMember) return;
+    if (!currentMember) return notFound();
 
     const otherMember = server.members.find((m) => m.id === params.memberId);
 

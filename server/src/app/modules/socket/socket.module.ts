@@ -16,14 +16,14 @@ import { ProfileCacheService } from '../auth/services/profileCache.service';
 import { ServerCacheService } from '../server/services/serverCache.service';
 import { RedisCacheService } from 'src/providers/cache/redis.cache';
 import { ConversationCacheService } from '../conversation/services/conversationCache.service';
-import { ChatService } from './services/chat.service';
+import { SocketService } from './services/socket.service';
 import { MediaGateway } from './gateway/Media.gateway';
 import { CallService } from './services/callService.service';
 
 @Module({
   providers: [
     PostgresDatabaseProviderService,
-    ChatService,
+    SocketService,
     MediaGateway,
     AuthWsMiddleware,
     ConfigService,
@@ -46,7 +46,7 @@ import { CallService } from './services/callService.service';
   ],
   exports: [
     MediaGateway,
-    ChatService,
+    SocketService,
     PostgresDatabaseProviderService,
     AuthWsMiddleware,
     ConfigService,

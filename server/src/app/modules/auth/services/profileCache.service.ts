@@ -6,6 +6,8 @@ import { AppHelperService } from 'src/common/helpers/app.helper';
 
 @Injectable()
 export class ProfileCacheService {
+  private readonly ttl: number = 3600 * 24;
+
   constructor(
     private readonly authService: AuthService,
     private readonly redisCache: RedisCacheService
@@ -32,7 +34,7 @@ export class ProfileCacheService {
   ) {
     const keyCache = this.getProfileKey(userId);
     const encodeData = AppHelperService.encodeWithMsgPack(data);
-    await this.redisCache.setCache(keyCache, encodeData);
+    await this.redisCache.setCache(keyCache, encodeData, this.ttl);
   }
 
   public async delProfileCache(userId: string) {

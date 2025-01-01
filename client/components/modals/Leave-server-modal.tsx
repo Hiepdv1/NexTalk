@@ -30,30 +30,32 @@ const LeaveServerModal = (props: IILeaveServerModalProps) => {
         try {
             setIsLoading(true);
 
-            const server = servers.find((server) => server.id !== serverId);
-
-            if (!server) return;
-
-            const member = server.members.find(
-                (member) => member.profileId === profile?.id
-            );
-
-            if (!member) return;
-
             const res = await RequestLeaveServer(`/servers/${serverId}/leave`);
 
             if (res.statusCode !== 200) return;
 
-            onClose();
+            const server = servers.find((server) => server.id !== serverId);
 
-            handleRemoveMemberInServer({
-                memberId: member.id,
-                serverId: server.id,
-            });
+            if (server) {
+                const member = server.members.find(
+                    (member) => member.profileId === profile?.id
+                );
 
-            router.push(
-                `/servers/${server.id}/channels/${server.channels[0].id}`
-            );
+                if (!member) return;
+
+                handleRemoveMemberInServer({
+                    memberId: member.id,
+                    serverId: server.id,
+                });
+
+                onClose();
+
+                router.push(
+                    `/servers/${server.id}/channels/${server.channels[0].id}`
+                );
+            } else {
+                window.location.href = "/";
+            }
         } catch (err) {
             console.error(err);
         } finally {

@@ -28,6 +28,7 @@ type ResFetchDataServerByInviteCode = {
         server: IResponseServerData;
         members: number;
         isMember: boolean;
+        online: number;
     };
     cancelRequest: (reason?: any) => void;
 };
