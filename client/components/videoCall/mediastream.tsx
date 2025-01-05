@@ -32,7 +32,6 @@ const MediaStreamComponent = ({
                 <video
                     key={stream.id}
                     ref={(video) => {
-                        console.log(video);
                         if (video) {
                             video.srcObject = videoStream;
                         }
@@ -71,9 +70,6 @@ const MediaStreamComponent = ({
         return null;
     };
 
-    console.log("Streams: ", streams);
-    console.log("IsScreenStream: ", isScreenShare);
-
     return (
         <div
             className={`${
@@ -83,7 +79,6 @@ const MediaStreamComponent = ({
             } mb-2`}
         >
             {streams.map((stream) => {
-                console.log("Stream: ", stream);
                 return handleStreamProduder(stream);
             })}
 

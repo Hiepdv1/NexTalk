@@ -1,17 +1,28 @@
-import { BadGatewayException, Injectable } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import fetch from 'node-fetch';
-import { Dropbox } from 'dropbox';
+import { Dropbox, DropboxAuth } from 'dropbox';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
 export class DropboxService {
   private readonly dbx: Dropbox;
+  private readonly auth: DropboxAuth;
 
   constructor(private configService: ConfigService) {
+    this.auth = new DropboxAuth({
+      clientId: this.configService.get('DROPBOX_APP_KEY'),
+      clientSecret: this.configService.get('DROPBOX_APP_SECRET'),
+      refreshToken: this.configService.get('DROPBOX_REFRESH_TOKEN'),
+    });
+
     this.dbx = new Dropbox({
-      accessToken: configService.get<string>('DROPBOX_ACCESS_TOKEN'),
       fetch,
+      auth: this.auth,
     });
   }
 
@@ -23,8 +34,8 @@ export class DropboxService {
     try {
       const uniqueId = uuidv4();
       const dropboxPath = options.path
-        ? `${options.path}/${uniqueId}-${fileName}`
-        : `/Discord-app/${uniqueId}-${fileName}`;
+        ? `${options.path}/${uniqueId}:::${fileName}`
+        : `/Discord-app/${uniqueId}:::${fileName}`;
 
       const fileUploaded = await this.dbx.filesUpload({
         path: dropboxPath,
@@ -39,8 +50,13 @@ export class DropboxService {
       const fileUrl = sharedLinkResponse.result.url.replace('&dl=0', '&raw=1');
 
       return { file: fileUploaded.result, url: fileUrl };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file to Dropbox:', error);
+
+      if (error?.status && error.status === 400) {
+        throw new BadRequestException(error.message);
+      }
+
       throw new BadGatewayException(error.message);
     }
   }

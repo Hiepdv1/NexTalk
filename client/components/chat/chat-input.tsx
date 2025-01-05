@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { number, z } from "zod";
 import { Form, FormControl, FormField, FormItem } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Plus } from "lucide-react";
+import { Plus, Send } from "lucide-react";
 import qs from "query-string";
 import { PostRequest } from "@/API/api";
 import { useSocket } from "../providers/socket-provider";
@@ -256,9 +256,9 @@ const ChatInput = ({
                     render={({ field }) => (
                         <FormItem>
                             <FormControl>
-                                <div className="relative p-4 pb-6 d-flex flex-col">
+                                <div className="relative p-4 pb-6 flex flex-col">
                                     {image && (
-                                        <div className="d-flex">
+                                        <div className="flex">
                                             <div className="relative w-20 h-20">
                                                 <img
                                                     alt="image/preview"
@@ -280,8 +280,8 @@ const ChatInput = ({
                                                         className="size-6"
                                                     >
                                                         <path
-                                                            stroke-linecap="round"
-                                                            stroke-linejoin="round"
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
                                                             d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
                                                         />
                                                     </svg>
@@ -289,7 +289,7 @@ const ChatInput = ({
                                             </div>
                                         </div>
                                     )}
-                                    <div className="relative d-flex items-center">
+                                    <div className="relative flex items-center">
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -313,7 +313,7 @@ const ChatInput = ({
                                             onPaste={handleOnPast}
                                             {...field}
                                         />
-                                        <div className="absolute top-1/2 -translate-y-1/2 right-4 w-6 h-6">
+                                        <div className="absolute top-1/2 -translate-y-1/2 right-4 flex items-center gap-2">
                                             <EmojiPicker
                                                 onChange={(emoji: string) =>
                                                     field.onChange(
@@ -321,6 +321,13 @@ const ChatInput = ({
                                                     )
                                                 }
                                             />
+                                            <button
+                                                type="submit"
+                                                className="md:hidden h-6 w-6 bg-zinc-500 dark:bg-zinc-400 hover:bg-zinc-600 dark:hover:bg-zinc-300 transition rounded-full p-1 flex items-center justify-center"
+                                                disabled={isLoading}
+                                            >
+                                                <Send className="h-4 w-4 text-white dark:text-[#313338]" />
+                                            </button>
                                         </div>
                                     </div>
                                 </div>

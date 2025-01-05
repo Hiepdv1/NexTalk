@@ -13,15 +13,27 @@ async function bootstrap() {
   const app = await NestFactory.create(MainModule, { bodyParser: true });
   const configService = app.get(ConfigService);
   const port = configService.get<number>('APP_PORT');
+  const hostName = configService.get<string>('FRONTEND_URL');
 
   app.useWebSocketAdapter(new SocketAdapter(app));
   app.useGlobalFilters(new HttpExceptionsFilter(configService));
 
   app.use(cookieParser());
   app.enableCors({
-    origin: 'http://localhost:3000',
+    origin: hostName,
     credentials: true,
   });
+
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', hostName);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header(
+      'Access-Control-Allow-Headers',
+      'Origin, X-Requested-With, Content-Type, Accept'
+    );
+    next();
+  });
+
   app.use(bodyParser.json({ limit: '1gb' }));
   app.useLogger(new LoggerCustom(configService));
   app.useGlobalPipes(

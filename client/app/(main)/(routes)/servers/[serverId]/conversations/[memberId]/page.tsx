@@ -53,8 +53,6 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
         );
     });
 
-    console.log("List Conversation: ", conversations);
-
     const handleGetConversation = (data: any) => {
         const conversation = JSON.parse(decrypt(data)) as IConversation;
         handleAddConversation(conversation);
@@ -108,8 +106,6 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
     }, [conversation]);
 
     if (!conversation) return;
-
-    console.log("Conversation: ", conversation);
 
     return (
         <div className="bg-white dark:bg-[#313338] flex flex-col h-screen">

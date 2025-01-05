@@ -1,6 +1,6 @@
 import type { Config } from "tailwindcss";
 
-const config = {
+const config: Config = {
     darkMode: ["class"],
     content: [
         "./pages/**/*.{ts,tsx}",
@@ -8,7 +8,6 @@ const config = {
         "./app/**/*.{ts,tsx}",
         "./src/**/*.{ts,tsx}",
     ],
-    prefix: "",
     theme: {
         container: {
             center: true,
@@ -67,14 +66,32 @@ const config = {
                     from: { height: "var(--radix-accordion-content-height)" },
                     to: { height: "0" },
                 },
+                fade: {
+                    "0%, 100%": { opacity: "1" },
+                    "50%": { opacity: "0.7" },
+                },
+                float: {
+                    "0%": { transform: "translate(0, 0) rotate(0deg)" },
+                    "50%": {
+                        transform: "translate(10px, -10px) rotate(180deg)",
+                    },
+                    "100%": { transform: "translate(0, 0) rotate(360deg)" },
+                },
+                "spin-slow": {
+                    from: { transform: "rotate(0deg)" },
+                    to: { transform: "rotate(360deg)" },
+                },
             },
             animation: {
                 "accordion-down": "accordion-down 0.2s ease-out",
                 "accordion-up": "accordion-up 0.2s ease-out",
+                float: "float 6s infinite ease-in-out",
+                "spin-slow": "spin-slow 8s linear infinite",
+                fade: "fade 2s infinite ease-in-out",
             },
         },
     },
     plugins: [require("tailwindcss-animate")],
-} satisfies Config;
+};
 
 export default config;

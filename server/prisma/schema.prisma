@@ -118,6 +118,7 @@ model Message {
   posterId     String?
   posterUrl     String? @db.Text
   type          MessageType @default(TEXT)
+  storageType   StorageType?
   memberId      String
   channelId     String
   deleted       Boolean @default(false)
@@ -157,6 +158,7 @@ model DirectMessage {
   type            MessageType @default(TEXT)
   memberId        String
   conversationId  String
+  storageType   StorageType?
 
   member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -187,4 +189,16 @@ model RequestNonce {
   expiresAt      DateTime
 
   @@index([nonce], name: "idx_nonce")
+}
+
+enum StorageType {
+  DROPBOX
+  CLOUDINARY
+}
+
+model TempStoreFile {
+   id             String      @id @default(uuid())
+   fileId         String
+   storageType    StorageType        
+   messageType    MessageType
 }

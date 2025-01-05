@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, StorageType } from '@prisma/client';
 
 import { PostgresDatabaseProviderService } from 'src/providers/database/postgres/provider.service';
 
@@ -7,9 +7,15 @@ import { PostgresDatabaseProviderService } from 'src/providers/database/postgres
 export class MessageService {
   constructor(private readonly db: PostgresDatabaseProviderService) {}
 
-  public async CreateMessage(data: Prisma.MessageCreateManyInput) {
+  public async CreateMessage(
+    data: Prisma.MessageCreateManyInput,
+    storageType?: StorageType
+  ) {
     return this.db.message.create({
-      data,
+      data: {
+        ...data,
+        storageType,
+      },
       include: {
         member: {
           include: {
@@ -29,6 +35,24 @@ export class MessageService {
         fileUrl: null,
         content: 'This message has been deleted',
         deleted: true,
+        fileId: null,
+        posterId: null,
+        posterUrl: null,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  public async addToTempStoreFile({
+    fileId,
+    storageType,
+    messageType,
+  }: Prisma.TempStoreFileCreateInput) {
+    return await this.db.tempStoreFile.create({
+      data: {
+        fileId,
+        storageType,
+        messageType,
       },
     });
   }

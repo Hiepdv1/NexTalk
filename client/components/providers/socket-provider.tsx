@@ -6,10 +6,17 @@ import {
     getClientIp,
 } from "@/utility/request-signature";
 import { useAuth } from "@clerk/nextjs";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import {
+    createContext,
+    MutableRefObject,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import { io as ClientIO, Socket } from "socket.io-client";
 import { getCookie } from "cookies-next";
-import { encrypt } from "@/utility/app.utility";
+import { decrypt, encrypt } from "@/utility/app.utility";
 
 interface ISocketProviderProps {
     children: React.ReactNode;
@@ -24,6 +31,14 @@ type SocketContextType = {
         method?: "GET" | "POST",
         query?: any
     ) => void;
+    StunServers?: MutableRefObject<StunServer[]>;
+};
+
+type StunServer = {
+    url: string;
+    urls: string;
+    username?: string;
+    credential?: string;
 };
 
 const SocketContext = createContext<SocketContextType>({
@@ -34,12 +49,13 @@ const SocketContext = createContext<SocketContextType>({
 const SocketProvider = ({ children }: ISocketProviderProps) => {
     const { getToken, isSignedIn } = useAuth();
     const socket = useRef<Socket | null>(null);
+    const StunServers: MutableRefObject<Array<StunServer>> = useRef([]);
     const [isConnected, setIsConnected] = useState(false);
 
     useEffect(() => {
         const connectSocket = () => {
             const token = getCookie("__session");
-            const url = `${process.env.NEXT_PUBLIC_SOCKET_SERVER_URL}/media`;
+            const url = `${process.env.NEXT_PUBLIC_SERVER_URL}/media`;
 
             const clientSocket = ClientIO(url, {
                 auth: {
@@ -74,6 +90,14 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
                 console.log("Socket reconnect failed");
                 setIsConnected(false);
             });
+
+            clientSocket.on("STUN:SERVERS", (message: string) => {
+                handleStunServers(message);
+            });
+
+            clientSocket.on("STUN:SERVERS:UPDATED", (message: string) => {
+                handleStunServers(message);
+            });
         };
 
         if (!isConnected) {
@@ -87,6 +111,12 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
             }
         };
     }, [isSignedIn, getToken, socket]);
+
+    function handleStunServers(message: string) {
+        const decryptMessage = JSON.parse(decrypt(message)) as StunServer[];
+        StunServers.current = decryptMessage;
+        console.log("Stun Server: ", decryptMessage);
+    }
 
     const sendMessage = (
         event: string,
@@ -137,7 +167,12 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
 
     return (
         <SocketContext.Provider
-            value={{ socket: socket.current, isConnected, sendMessage }}
+            value={{
+                socket: socket.current,
+                isConnected,
+                sendMessage,
+                StunServers,
+            }}
         >
             {children}
         </SocketContext.Provider>

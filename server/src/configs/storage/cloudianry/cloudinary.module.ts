@@ -4,5 +4,6 @@ import { CloudinaryService } from './cloudinary.service';
 
 @Module({
   providers: [CloudinaryConfig, CloudinaryService],
+  exports: [CloudinaryService],
 })
 export class NestCloudinaryClientModule {}

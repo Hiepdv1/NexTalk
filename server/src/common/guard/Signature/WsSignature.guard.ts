@@ -41,6 +41,13 @@ export class WsSignatureGuard implements CanActivate {
       );
       if (isPublic) return true;
 
+      const siggBasedAuth = this.configService.get('SIGNATURE_BASED_AUTH');
+
+      const signatureBasedAuth =
+        await this.clientService.validateConfigValue(siggBasedAuth);
+
+      if (!signatureBasedAuth) return false;
+
       const { headers, body, method, message } = data;
 
       const clientId = headers?.['x-client-id'] as string;

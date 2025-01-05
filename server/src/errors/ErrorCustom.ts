@@ -16,6 +16,7 @@ import {
   WsNotFoundException,
   WsUnauthorizedException,
 } from './WsError';
+import { WsException } from '@nestjs/websockets';
 
 export enum ErrorType {
   BAD_REQUEST = 'BAD_REQUEST',
@@ -163,12 +164,18 @@ export class ErrorCustom extends Error {
   }
 
   public static fromNestError(
-    error: HttpException | BaseWsException,
+    error: HttpException | BaseWsException | WsException,
     path?: string
   ): ErrorCustom {
-    const status = error.getStatus();
-    const response = error.getResponse() as any;
-    const message = response.message || error.message;
+    let status: number = 500;
+    let response: any = null;
+
+    if (error instanceof BaseWsException || error instanceof HttpException) {
+      status = error.getStatus();
+      response = error.getResponse() as any;
+    }
+
+    const message: string = response?.message || error.message;
     const metadata: ErrorMetadata = {
       timestamp: new Date().toISOString(),
       source: 'NestJS',
@@ -180,32 +187,43 @@ export class ErrorCustom extends Error {
 
     if (
       error instanceof BadRequestException ||
-      error instanceof WsBadRequestException
+      error instanceof WsBadRequestException ||
+      message.toLocaleLowerCase().includes('bad request')
     ) {
       errorType = ErrorType.BAD_REQUEST;
+      status = 400;
     } else if (
       error instanceof UnauthorizedException ||
-      error instanceof WsUnauthorizedException
+      error instanceof WsUnauthorizedException ||
+      message.toLocaleLowerCase().includes('unauthorized')
     ) {
+      status = 401;
       errorType = ErrorType.UNAUTHORIZED;
     } else if (
       error instanceof ForbiddenException ||
-      error instanceof WsForbiddenException
+      error instanceof WsForbiddenException ||
+      message.toLocaleLowerCase().includes('forbidden')
     ) {
+      status = 403;
       errorType = ErrorType.FORBIDDEN;
     } else if (
       error instanceof NotFoundException ||
-      error instanceof WsNotFoundException
+      error instanceof WsNotFoundException ||
+      message.toLocaleLowerCase().includes('not found')
     ) {
       errorType = ErrorType.NOT_FOUND;
+      status = 404;
     } else if (
       error instanceof ConflictException ||
-      error instanceof WsConflictException
+      error instanceof WsConflictException ||
+      message.toLocaleLowerCase().includes('conflict')
     ) {
+      status = 409;
       errorType = ErrorType.CONFLICT;
     } else if (
       error instanceof InternalServerErrorException ||
-      error instanceof WsInternalServerErrorException
+      error instanceof WsInternalServerErrorException ||
+      message.toLocaleLowerCase().includes('internal')
     ) {
       errorType = ErrorType.INTERNAL;
       isOperational = false;

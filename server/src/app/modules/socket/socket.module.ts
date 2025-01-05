@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { PostgresDatabaseProviderService } from 'src/providers/database/postgres/provider.service';
 import { AuthWsMiddleware } from 'src/common/middlewares/AuthWs.middleware';
 import { ConfigService } from '@nestjs/config';
 import { RequestNonceService } from '../requestNonce/services/requestNonce.service';
@@ -19,10 +18,10 @@ import { ConversationCacheService } from '../conversation/services/conversationC
 import { SocketService } from './services/socket.service';
 import { MediaGateway } from './gateway/Media.gateway';
 import { CallService } from './services/callService.service';
-
+import { PostgresDatabaseProviderModule } from '@src/providers/database/postgres/provider.module';
 @Module({
+  imports: [PostgresDatabaseProviderModule],
   providers: [
-    PostgresDatabaseProviderService,
     SocketService,
     MediaGateway,
     AuthWsMiddleware,
@@ -47,7 +46,6 @@ import { CallService } from './services/callService.service';
   exports: [
     MediaGateway,
     SocketService,
-    PostgresDatabaseProviderService,
     AuthWsMiddleware,
     ConfigService,
     RequestNonceService,

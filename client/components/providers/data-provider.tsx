@@ -22,6 +22,7 @@ import React, {
 } from "react";
 import { usePathname } from "next/navigation";
 import { decrypt } from "@/utility/app.utility";
+import LoadingScreen from "../loadding/loadingScreen";
 
 interface IDataProvider {
     servers: IServer[];
@@ -515,7 +516,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     if (isLoading) {
-        return null;
+        return <LoadingScreen />;
     }
 
     return (

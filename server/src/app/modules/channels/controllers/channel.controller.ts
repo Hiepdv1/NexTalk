@@ -25,7 +25,7 @@ import { MessageService } from '../../socket/services/message.service';
 import { ChannelCacheService } from '../services/channelCache.service';
 import { CloudinaryService } from 'src/configs/storage/cloudianry/cloudinary.service';
 import { v4 as genuuid } from 'uuid';
-import { MessageType } from '@prisma/client';
+import { MessageType, StorageType } from '@prisma/client';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ProfileCacheService } from '../../auth/services/profileCache.service';
@@ -254,16 +254,19 @@ export class ChannelController {
         genuuid()
       );
 
-      const newMessage = await this.messageService.CreateMessage({
-        content: uploadFile._id,
-        fileUrl: uploadFile.url,
-        fileId: uploadFile._id,
-        type: MessageType.VIDEO,
-        posterId: thumbnailUpload._id,
-        posterUrl: thumbnailUpload.url,
-        channelId: channelId,
-        memberId: isExistingMember.id,
-      });
+      const newMessage = await this.messageService.CreateMessage(
+        {
+          content: uploadFile._id,
+          fileUrl: uploadFile.url,
+          fileId: uploadFile._id,
+          type: MessageType.VIDEO,
+          posterId: thumbnailUpload._id,
+          posterUrl: thumbnailUpload.url,
+          channelId: channelId,
+          memberId: isExistingMember.id,
+        },
+        StorageType.CLOUDINARY
+      );
 
       const encryptData = AppHelperService.encrypt(
         JSON.stringify(newMessage),
@@ -287,14 +290,17 @@ export class ChannelController {
         ? MessageType.IMAGE
         : MessageType.FILE;
 
-      const newMessage = await this.messageService.CreateMessage({
-        content: uploadFiles.url,
-        fileUrl: uploadFiles.url,
-        fileId: uploadFiles.file.path_lower,
-        type,
-        channelId: channelId,
-        memberId: isExistingMember.id,
-      });
+      const newMessage = await this.messageService.CreateMessage(
+        {
+          content: uploadFiles.url,
+          fileUrl: uploadFiles.url,
+          fileId: uploadFiles.file.path_lower,
+          type,
+          channelId: channelId,
+          memberId: isExistingMember.id,
+        },
+        StorageType.DROPBOX
+      );
 
       const encryptData = AppHelperService.encrypt(
         JSON.stringify(newMessage),

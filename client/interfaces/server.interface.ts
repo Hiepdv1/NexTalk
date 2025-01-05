@@ -147,6 +147,7 @@ export interface IDirectMessage {
     id: string;
     content: string;
     fileUrl?: string;
+    fileId?: string;
     memberId: string;
     type: MessageType;
     posterUrl?: string;

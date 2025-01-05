@@ -15,6 +15,7 @@ import {
   HttpException,
   Logger,
   NotFoundException,
+  OnModuleInit,
   UnauthorizedException,
   UseFilters,
   UseGuards,
@@ -63,7 +64,11 @@ import { SocketService } from '../services/socket.service';
   },
 })
 export class MediaGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleInit
 {
   @WebSocketServer()
   public server: Server;
@@ -99,16 +104,24 @@ export class MediaGateway
   handleConnection(socket: Socket) {
     this.authWs.use(socket, async (err) => {
       if (err) {
-        socket.emit('unauthorized_error', {
+        socket.emit('error', {
           message: 'Unauthorized access. Token verification failed.',
         });
         socket.disconnect();
         return;
       }
 
-      await this.socketService.handleConnection(socket);
+      await this.socketService.handleConnection(socket); // 23h;
 
-      // this.startPing(socket);
+      const SERVER_STUNS = this.callService.GetTwilioStunServers();
+
+      const encryptMessage = AppHelperService.encrypt(
+        JSON.stringify(SERVER_STUNS),
+        this.SECRET_KEY
+      );
+
+      socket.emit('STUN:SERVERS', encryptMessage);
+
       console.log('Client connected:', socket.id);
       console.log('Is connected:', socket.connected);
     });
@@ -137,24 +150,20 @@ export class MediaGateway
     }
   }
 
-  startPing(socket: Socket) {
-    this.pingInterval = setInterval(() => {
-      if (socket.connected) {
-        socket.emit('ping');
-        this.pingTimeout = setTimeout(() => {
-          console.log(
-            'Client did not respond to ping, disconnecting:',
-            socket.id
-          );
-          this.handleDisconnect(socket);
-        }, 10000);
-      }
-    }, 25000);
+  async onModuleInit() {
+    await this.callService.CreateTwilioToken();
 
-    socket.on('pong', () => {
-      console.log('Received pong from:', socket.id);
-      clearTimeout(this.pingTimeout);
-    });
+    setInterval(async () => {
+      await this.callService.CreateTwilioToken();
+      const SERVER_STUNS = this.callService.GetTwilioStunServers();
+
+      const encryptMessage = AppHelperService.encrypt(
+        JSON.stringify(SERVER_STUNS),
+        this.SECRET_KEY
+      );
+
+      this.server.emit('STUN:SERVERS:UPDATED', encryptMessage);
+    }, 82800000); // 23h
   }
 
   @UseGuards(WsCombinedGuard)
@@ -214,7 +223,7 @@ export class MediaGateway
   @UseGuards(WsCombinedGuard)
   @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('message_modify')
-  public async handleEditMessage(socket: Socket, values: any) {
+  public async handleModifyMessage(socket: Socket, values: any) {
     try {
       const { channelId, memberId, content, serverId, messageId, method } =
         values.message;
@@ -232,7 +241,7 @@ export class MediaGateway
 
       if (!server) {
         server = await this.serverService.getServerById(serverId);
-        if (!server) throw new NotFoundError('The server does not exist');
+        if (!server) throw new WsNotFoundException('The server does not exist');
         await this.serverCacheService.setAndOverrideServerCache(
           serverId,
           server
@@ -282,7 +291,29 @@ export class MediaGateway
           `channels:${channel.id}:message:delete`,
           encryptMessage
         );
-        return this.messageService.deleteMessage(message.id);
+
+        if (message.type === MessageType.VIDEO) {
+          await Promise.all([
+            this.messageService.addToTempStoreFile({
+              fileId: message.fileId,
+              storageType: message.storageType,
+              messageType: message.type,
+            }),
+            this.messageService.addToTempStoreFile({
+              fileId: message.posterId,
+              storageType: message.storageType,
+              messageType: 'IMAGE',
+            }),
+          ]);
+        } else {
+          await this.messageService.addToTempStoreFile({
+            fileId: message.fileId,
+            storageType: message.storageType,
+            messageType: message.type,
+          });
+        }
+
+        return await this.messageService.deleteMessage(message.id);
       } else if (method === 'PATCH') {
         if (!content || content <= 0) {
           throw new BadRequestException('Content is not a valid');
@@ -460,7 +491,7 @@ export class MediaGateway
           );
         }
 
-        this.conversationCacheService.setAndOverrideConversationCache(
+        await this.conversationCacheService.setAndOverrideConversationCache(
           { serverId },
           [...conversationCache, conversation]
         );
@@ -816,9 +847,9 @@ export class MediaGateway
     newProducer.peer.oniceconnectionstatechange = () => {
       const state = peerProducer.iceConnectionState;
 
-      if (state === 'failed') {
-        socket.emit('producer-failed', {
-          message: 'Consumer failed',
+      if (state === 'failed' || state === 'disconnected') {
+        socket.emit('error', {
+          message: 'Producer Connected Failed',
           producerId: newProducer.senderId,
           kind: newProducer.kind,
         });
@@ -885,8 +916,12 @@ export class MediaGateway
     console.log('Consumer-for-producer: ', socket.id);
 
     consumerData.peer.oniceconnectionstatechange = () => {
-      if (consumerData.peer.iceConnectionState === 'failed') {
-        socket.emit('consumer-failed', {
+      if (
+        consumerData.peer.iceConnectionState === 'failed' ||
+        consumerData.peer.iceConnectionState === 'disconnected'
+      ) {
+        console.log('Consumer disconnected');
+        socket.emit('error', {
           message: 'Consumer failed',
           producerId: consumerData.participantId,
           kind: consumerData.kind,

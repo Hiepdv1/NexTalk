@@ -1,5 +1,5 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
+import { Prisma, PrismaClient, MessageType } from '@prisma/client';
 
 @Injectable()
 export class PostgresDatabaseProviderService
@@ -8,8 +8,33 @@ export class PostgresDatabaseProviderService
 {
   private keepAliveInterval: NodeJS.Timeout;
 
+  protected setUpCreatedMesageValidate() {
+    return this.$extends({
+      model: {
+        message: {
+          async createWithValidation(
+            data: Prisma.MessageCreateManyInput | Prisma.MessageCreateInput
+          ) {
+            if (
+              (data.type === MessageType.FILE ||
+                data.type === MessageType.VIDEO) &&
+              !data.storageType
+            ) {
+              throw new BadRequestException(
+                'storageType is required when type is FILE or VIDEO'
+              );
+            }
+
+            return this.create(data);
+          },
+        },
+      },
+    });
+  }
+
   async onModuleInit() {
     await this.$connect();
+    this.setUpCreatedMesageValidate();
     this.startKeepAlive();
   }
 

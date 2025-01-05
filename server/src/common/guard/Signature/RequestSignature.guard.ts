@@ -33,7 +33,7 @@ export class RequestSignatureGuard implements CanActivate {
     const signatureBasedAuth =
       await this.clientService.validateConfigValue(siggBasedAuth);
 
-    if (!signatureBasedAuth) return true;
+    if (!signatureBasedAuth) return false;
 
     const { headers, cookies } = request;
 
@@ -44,7 +44,9 @@ export class RequestSignatureGuard implements CanActivate {
     const timestamp = +headers['x-timestamp'];
     const requestId = headers['x-request-id'] as V4Options;
     const userAgent = request.headers['user-agent'];
-    const clientIp = request.headers['x-forwarded-for'] || request.ip;
+    const clientIp =
+      (request.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ||
+      request.ip;
 
     if (
       !signature ||

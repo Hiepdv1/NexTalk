@@ -135,7 +135,7 @@ export class ServerController {
         'Discord/ServerImages',
         file.mimetype
       ),
-      this.cloudinaryService.Destroy(server.cloudId),
+      this.cloudinaryService.Destroy(server.cloudId, 'image'),
     ]);
 
     const { _id, url } = uploadToCloud as {
@@ -584,7 +584,7 @@ export class ServerController {
 
     const [deletedServer] = await Promise.all([
       this.serverService.DeleteServer(profile.id, server.id),
-      this.cloudinaryService.Destroy(server.cloudId),
+      this.cloudinaryService.Destroy(server.cloudId, 'image'),
     ]);
 
     const encryptData = AppHelperService.encrypt(

@@ -1,6 +1,6 @@
 import { ArgumentsHost, Catch, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BaseWsExceptionFilter } from '@nestjs/websockets';
+import { BaseWsExceptionFilter, WsException } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { ErrorCustom, ErrorType } from 'src/errors/ErrorCustom';
 import { BaseWsException } from 'src/errors/WsError';
@@ -22,6 +22,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
       this.configService.get<string>('NODE_ENV') === 'production';
 
     try {
+      console.log('Exception Filter: ', exception);
       const error = this.normalizeError(exception, client, isProduction, event);
       this.formatErrorLog(error, client, isProduction, event);
 
@@ -59,7 +60,10 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
   ): ErrorCustom {
     const path = `socket:${client.nsp.name}${event ? `/${event}` : ''}`;
 
-    if (exception instanceof BaseWsException) {
+    if (
+      exception instanceof BaseWsException ||
+      exception instanceof WsException
+    ) {
       return ErrorCustom.fromNestError(exception);
     }
 

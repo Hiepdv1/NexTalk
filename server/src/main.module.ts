@@ -6,10 +6,12 @@ import { validate } from './common/pipes/env.validation';
 import { MainController } from './Main.controller';
 import { AppModule } from './app/app.module';
 import { NestCloudinaryClientModule } from './configs/storage/cloudianry/cloudinary.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate }),
+    ScheduleModule.forRoot(),
     PostgresDatabaseProviderModule,
     NestCloudinaryClientModule,
     AppModule,

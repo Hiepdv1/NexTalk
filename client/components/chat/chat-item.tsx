@@ -26,6 +26,7 @@ interface IChatItemProps {
     content: string;
     member: IMember;
     timestamp: string;
+    fileId?: string;
     fileUrl?: string | null;
     deleted: boolean;
     currentMember: CurrentMember;
@@ -58,6 +59,7 @@ const ChatItem = ({
     fileUrl,
     channelId,
     serverId,
+    fileId,
     type,
     psoterUrl,
 }: IChatItemProps) => {
@@ -158,6 +160,8 @@ const ChatItem = ({
         }
     };
 
+    console.log("content: ", content, id);
+
     return (
         <div className="relative group flex items-cneter hover:bg-black/5 p-4 transition w-full">
             <div className="flex flex-col gap-x-2 w-full">
@@ -229,7 +233,7 @@ const ChatItem = ({
                                             className="ml-2 text-sm text-indigo-500 dark:text-indigo-400 hover:underline"
                                             rel="noopener noreferrer"
                                         >
-                                            {content.split("/").pop()}
+                                            {fileId?.split(":::").pop()}
                                         </a>
                                     </div>
                                 )}

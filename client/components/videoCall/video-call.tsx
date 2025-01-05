@@ -9,15 +9,6 @@ import { useRouter } from "next/navigation";
 import VideoScreenComponent from "./videoScreen";
 import { IServer } from "@/interfaces";
 
-const SERVER_STUNS = [
-    {
-        urls: "stun:stun.l.google.com:19302",
-    },
-    {
-        urls: "stun:stun.stunprotocol.org",
-    },
-];
-
 interface IVideoCallProps {
     roomId: string;
     isAudioCall?: boolean;
@@ -52,7 +43,7 @@ const VideoCall = ({
     currentProfile,
     servers,
 }: IVideoCallProps) => {
-    const { sendMessage, socket } = useSocket();
+    const { sendMessage, socket, StunServers: SERVER_STUNS } = useSocket();
     const { addListener, removeListener } = useSocketEvents();
     const router = useRouter();
 
@@ -81,7 +72,13 @@ const VideoCall = ({
     const [consumerScreens, setConsumerScreens] =
         useState<IStreamScreen | null>(null);
 
-    if (!sendMessage || !socket) return null;
+    if (
+        !sendMessage ||
+        !socket ||
+        !SERVER_STUNS?.current ||
+        SERVER_STUNS.current.length === 0
+    )
+        return null;
 
     const handleJoinedRoom = async (data: string) => {
         const { activeProducers } = JSON.parse(decrypt(data)) as {
@@ -161,8 +158,22 @@ const VideoCall = ({
                 userId: string;
             }>((resolve) => {
                 const peer = new RTCPeerConnection({
-                    iceServers: SERVER_STUNS,
+                    iceServers: SERVER_STUNS.current,
                 });
+
+                peer.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        console.log("ICE candidate:", {
+                            type: event.candidate.type,
+                            protocol: event.candidate.protocol,
+                            address: event.candidate.address,
+                            port: event.candidate.port,
+                            foundation: event.candidate.foundation,
+                        });
+                    } else {
+                        console.log("ICE gathering completed");
+                    }
+                };
 
                 peer.ontrack = (e: RTCTrackEvent) => {
                     const streams = e.streams;
@@ -319,8 +330,65 @@ const VideoCall = ({
     }) => {
         return new Promise<void>((resolve) => {
             const peer = new RTCPeerConnection({
-                iceServers: SERVER_STUNS,
+                iceServers: SERVER_STUNS.current,
+                iceTransportPolicy: "all",
+                iceCandidatePoolSize: 10,
+                bundlePolicy: "max-bundle",
             });
+
+            peer.oniceconnectionstatechange = () => {
+                console.log("ICE Connection State:", peer.iceConnectionState);
+
+                if (peer.iceConnectionState === "disconnected") {
+                    setTimeout(async () => {
+                        if (peer.iceConnectionState === "disconnected") {
+                            try {
+                                const offer = await peer.createOffer({
+                                    iceRestart: true,
+                                });
+                                await peer.setLocalDescription(offer);
+
+                                sendMessage(
+                                    "create-consumer-for-producer",
+                                    {
+                                        channelId: roomId,
+                                        sdp: peer.localDescription,
+                                        participantId,
+                                        kind: type,
+                                        producerId,
+                                    },
+                                    "POST"
+                                );
+                            } catch (err) {
+                                console.error("ICE restart failed:", err);
+                                peer.close();
+                                console.log(
+                                    "Peer consumer disconnected after retry"
+                                );
+                            }
+                        }
+                    }, 3000);
+                }
+
+                if (peer.iceConnectionState === "failed") {
+                    peer.close();
+                    console.log("Peer consumer disconnected due to failure");
+                }
+            };
+
+            peer.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log("ICE candidate:", {
+                        type: event.candidate.type,
+                        protocol: event.candidate.protocol,
+                        address: event.candidate.address,
+                        port: event.candidate.port,
+                        foundation: event.candidate.foundation,
+                    });
+                } else {
+                    console.log("ICE gathering completed");
+                }
+            };
 
             peer.ontrack = (e: RTCTrackEvent) => {
                 const streams = e.streams;
@@ -384,16 +452,6 @@ const VideoCall = ({
                     producerId
                 );
 
-            peer.oniceconnectionstatechange = () => {
-                if (
-                    peer.iceConnectionState === "disconnected" ||
-                    peer.iceConnectionState === "failed"
-                ) {
-                    peer.close();
-                    console.log("Peer consumer disconnected");
-                }
-            };
-
             kind.split("/").forEach((k) => {
                 console.log("Kind: ", k);
                 peer.addTransceiver(k, { direction: "recvonly" });
@@ -449,9 +507,6 @@ const VideoCall = ({
             kind: string;
         };
 
-        console.log("Kind: ", kind);
-        console.log("sdp: ", sdp);
-
         const desc = new RTCSessionDescription(sdp);
         peer.setRemoteDescription(desc).catch((e) =>
             console.error(`SetRemoteDescription Error: ${e}`)
@@ -489,22 +544,6 @@ const VideoCall = ({
         console.error("SocketError: ", error);
     };
 
-    const stopMediaStream = () => {
-        if (videoStreamRef.current) {
-            videoStreamRef.current.getTracks().forEach((track) => {
-                track.stop();
-                track.enabled = false;
-            });
-        }
-
-        if (audioStreamRef.current) {
-            audioStreamRef.current.getTracks().forEach((track) => {
-                track.stop();
-                track.enabled = false;
-            });
-        }
-    };
-
     const disConnectPeer = ({
         participantId,
         producerId,
@@ -526,6 +565,7 @@ const VideoCall = ({
         if (!producer) {
             peer.forEach((peerInfo) => peerInfo.peer.close());
             peerConnections.current.delete(participantId);
+            console.log("Producer clear peers");
             return;
         }
 
@@ -540,12 +580,27 @@ const VideoCall = ({
 
     const createPeer = (stream: MediaStream, type: string) => {
         const peer = new RTCPeerConnection({
-            iceServers: SERVER_STUNS,
+            iceServers: SERVER_STUNS.current,
         });
 
         stream.getTracks().forEach((track) => {
             peer.addTrack(track, stream);
         });
+
+        peer.onicecandidate = (event) => {
+            console.log("ICE Connection State:", peer.iceConnectionState);
+            if (event.candidate) {
+                console.log("ICE candidate:", {
+                    type: event.candidate.type,
+                    protocol: event.candidate.protocol,
+                    address: event.candidate.address,
+                    port: event.candidate.port,
+                    foundation: event.candidate.foundation,
+                });
+            } else {
+                console.log("ICE gathering completed");
+            }
+        };
 
         return new Promise<void>((resolve) => {
             peer.onnegotiationneeded = async () => {
@@ -594,9 +649,6 @@ const VideoCall = ({
 
                 const videoTrack = stream.getVideoTracks();
                 const settings = videoTrack[0]?.getSettings() as any;
-
-                console.log("Settings: ", videoTrack[0]?.getSettings());
-
                 if (
                     settings?.cursor === "motion" ||
                     settings?.cursor === "always"
@@ -616,9 +668,6 @@ const VideoCall = ({
                         const newMap = new Map(prev);
 
                         const existingConsumer = newMap.get(participantId);
-
-                        console.log("Existing Consumer: ", existingConsumer);
-
                         if (existingConsumer) {
                             existingConsumer.streams = [
                                 ...existingConsumer.streams,
@@ -751,7 +800,7 @@ const VideoCall = ({
             consumerScreens &&
             socket.id === consumerScreens.participantId
         ) {
-            consumerScreens.stream.getTracks().forEach((track) => track.stop());
+            console.log("Is Screen producer leave room");
             handleTurnOffScreenSharing();
         }
 
@@ -872,24 +921,18 @@ const VideoCall = ({
             participantId: string;
         };
 
-        console.log("Peer Leave Room disconnected: ", participantId);
-        console.log(
-            "ParticipantId Broadcast: ",
-            consumerScreens?.participantId
-        );
-
-        if (consumerScreens?.participantId !== participantId) {
-            disConnectPeer({
-                participantId,
-            });
+        if (consumerScreens?.participantId === participantId) {
+            consumerScreens?.stream
+                .getTracks()
+                .forEach((track) => track.stop());
             setIsScreenSharing(false);
             setConsumerScreens(null);
+            console.log("Broadcast screen disconnected");
         }
 
         disConnectPeer({
             participantId,
         });
-
         setConsumers((prev) => {
             const newMap = new Map(prev);
 
@@ -905,8 +948,6 @@ const VideoCall = ({
             type: string;
             producerId: string;
         };
-
-        console.log("Producer Disconnected Data: ", data);
 
         if (data.type === "screen") {
             setConsumerScreens(null);
@@ -928,9 +969,7 @@ const VideoCall = ({
             (p) => p.producerId === data.producerId
         );
 
-        if (peerInfo?.peer.close()) {
-            console.log("Peer disconnected: ", peerConnections);
-        }
+        peerInfo?.peer.close();
 
         peerConnections.current.set(
             data.participantProducerId,
@@ -991,6 +1030,12 @@ const VideoCall = ({
         }
     };
 
+    const stopLocalStreamScreen = () => {
+        if (shareStreamRef.current) {
+            shareStreamRef.current.getTracks().forEach((track) => track.stop());
+        }
+    };
+
     const setupListeners = () => {
         addListener("joined-room", handleJoinedRoom);
         addListener("new-member:info", handleNewMember);
@@ -1009,8 +1054,7 @@ const VideoCall = ({
                 "updated-status-change",
                 handleUpdatedMediaStreamStatus
             );
-
-            stopMediaStream();
+            stopLocalStreamScreen();
             sendMessage("leave-room", { channelId: roomId }, "POST");
         };
     };
@@ -1024,9 +1068,6 @@ const VideoCall = ({
 
         return cleanup;
     }, []);
-
-    console.log("Consumers: ", consumers);
-    console.log("ConsumersScreen: ", consumerScreens);
 
     return (
         <div className={"flex-1 flex flex-col md:p-4"}>

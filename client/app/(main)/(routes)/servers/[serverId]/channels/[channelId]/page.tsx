@@ -4,7 +4,6 @@ import ChatHeader from "@/components/chat/chat-header";
 import ChatInput from "@/components/chat/chat-input";
 import ChatMessage from "@/components/chat/chat-message";
 import { useData } from "@/components/providers/data-provider";
-import MediaRoom from "@/components/ui/media-room";
 import VideoCall from "@/components/videoCall/video-call";
 import { channelType } from "@/interfaces";
 import { useRouter } from "next/navigation";
@@ -94,10 +93,6 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
                         channel={channel}
                     />
                 </Fragment>
-            )}
-
-            {channel.type === channelType.AUDIO && (
-                <MediaRoom chatId={channel.id} audio={true} video={false} />
             )}
 
             {channel.type === channelType.VIDEO && (

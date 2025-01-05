@@ -1,9 +1,9 @@
 import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Injectable, Inject, Logger } from '@nestjs/common';
+import { Injectable, Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { AppHelperService } from 'src/common/helpers/app.helper';
 
 @Injectable()
-export class RedisCacheService {
+export class RedisCacheService implements OnModuleInit {
   private readonly logger = new Logger();
 
   private readonly ttl: number = 0;

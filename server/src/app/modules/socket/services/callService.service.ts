@@ -3,20 +3,50 @@ import { Producer, Room } from '../dto/channel.dto';
 import wrtc from 'wrtc';
 import { v4 as genuid } from 'uuid';
 import { WsNotFoundException } from 'src/errors/WsError';
+import { TwilioService } from 'nestjs-twilio';
 
 @Injectable()
 export class CallService {
   private readonly ChannelStore: Map<string, Room> = new Map();
-  private readonly SERVER_STUNS = [
-    {
-      urls: 'stun:stun.l.google.com:19302',
-    },
-    {
-      urls: 'stun:stun.stunprotocol.org',
-    },
-  ];
+  private SERVER_STUNS: Array<{
+    url?: string;
+    urls: string;
+    username?: string;
+    credential?: string;
+  }> = [];
 
-  constructor() {}
+  constructor(private readonly twilioService: TwilioService) {}
+
+  public async CreateTwilioToken() {
+    try {
+      const token = await this.twilioService.client.tokens.create();
+
+      const iceServers = [
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun2.1.google.com:19302' },
+      ];
+
+      this.SERVER_STUNS = [...(token.iceServers as any), ...iceServers];
+
+      this.SERVER_STUNS.forEach((server: any) => {
+        if (server.url) {
+          delete server.url;
+        }
+      });
+
+      console.log('Twilio Token Created:', this.SERVER_STUNS);
+    } catch (error) {
+      console.error('Failed to create Twilio token:', error);
+    }
+  }
+
+  public GetTwilioStunServers() {
+    return this.SERVER_STUNS;
+  }
 
   public getMembersOnline(channelId: string) {
     const channel = this.ChannelStore.get(channelId);
@@ -109,6 +139,12 @@ export class CallService {
 
     peer.ontrack = (e) => {
       const producer = this.handleTrackEvent(e, producerId);
+
+      if (!producer.streams || producer.streams.length === 0) {
+        console.error('No stream in producer:', producer);
+        return;
+      }
+
       newInfoProducer = {
         ...producer,
         senderId: socketId,

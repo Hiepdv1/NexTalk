@@ -140,26 +140,32 @@ export class CloudinaryService {
     });
   }
 
-  private async DestroyStream(cloudId: string) {
-    const destroyStream = await cloudinary.uploader.destroy(cloudId);
+  private async DestroyStream(cloudId: string, resourceType: string) {
+    try {
+      const destroyStream = await cloudinary.uploader.destroy(cloudId, {
+        resource_type: resourceType,
+      });
 
-    if (destroyStream.result === 'ok') {
-      return { cloudId, status: 'deleted' };
+      if (destroyStream.result === 'ok') {
+        return { cloudId, status: 'deleted' };
+      }
+
+      return { cloudId, status: 'not_found', message: destroyStream.message };
+    } catch (error: any) {
+      return { cloudId, status: 'not_found', message: error.message };
     }
-
-    return { cloudId, status: 'not_found', message: destroyStream.message };
   }
 
-  async Destroy(cloudIds: string | Array<string>) {
+  async Destroy(cloudIds: string | Array<string>, resourceType: string) {
     if (Array.isArray(cloudIds)) {
       const destroyPromise = cloudIds.map((cloudId) =>
-        this.DestroyStream(cloudId)
+        this.DestroyStream(cloudId, resourceType)
       );
       const result = await Promise.all(destroyPromise);
       console.log(result);
       return result;
     } else {
-      const result = await this.DestroyStream(cloudIds);
+      const result = await this.DestroyStream(cloudIds, resourceType);
       console.log(result);
       return result;
     }

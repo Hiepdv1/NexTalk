@@ -276,6 +276,7 @@ const ChatMessage = ({
                                 id={message.id}
                                 content={message.content}
                                 currentMember={member}
+                                fileId={message.fileId}
                                 fileUrl={message.fileUrl}
                                 psoterUrl={message.posterUrl}
                                 type={message.type}
