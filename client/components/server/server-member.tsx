@@ -5,9 +5,11 @@ import { cn } from "@/lib/utils";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import UserAvatar from "../ui/user-avatar";
+import { memo } from "react";
 
 interface IServerMemberProps {
     member: IResMembers & { profile: IProfile };
+    isOnline: boolean;
 }
 
 const roleIconMap = {
@@ -18,7 +20,7 @@ const roleIconMap = {
     [MemberRole.ADMIN]: <ShieldAlert className="w-4 h-4 ml-2 text-rose-500" />,
 };
 
-const ServerMember = ({ member }: IServerMemberProps) => {
+const ServerMember = ({ member, isOnline }: IServerMemberProps) => {
     const router = useRouter();
     const params = useParams();
 
@@ -27,6 +29,8 @@ const ServerMember = ({ member }: IServerMemberProps) => {
     const handleNavigateMembers = () => {
         router.push(`/servers/${params?.serverId}/conversations/${member.id}`);
     };
+
+    console.log("Members: ", member);
 
     return (
         <div>
@@ -38,10 +42,19 @@ const ServerMember = ({ member }: IServerMemberProps) => {
                         "bg-zinc-700/20 dark:bg-zinc-700"
                 )}
             >
-                <UserAvatar
-                    className="w-8 h-8 md:h-8 md:w-8"
-                    src={member.profile.imageUrl}
-                />
+                <div className="relative">
+                    <UserAvatar
+                        className="w-8 h-8 md:h-8 md:w-8"
+                        src={member.profile.imageUrl}
+                    />
+
+                    {isOnline && (
+                        <div className="absolute right-0 bottom-0 w-3 h-3 z-50">
+                            <div className="absolute w-full h-full bg-emerald-500 rounded-full opacity-70 animate-pulse ring-2 ring-white dark:ring-zinc-900 ring-offset-2 ring-offset-white dark:ring-offset-zinc-900" />
+                            <div className="absolute w-full h-full bg-emerald-500 rounded-full ring-2 ring-white dark:ring-zinc-900" />
+                        </div>
+                    )}
+                </div>
                 <p
                     className={cn(
                         "font-semibold text-sm text-zinc-500 group-hover:text-zinc-600 dark:text-zinc-400 dark:group-hover:text-zinc-300 transition",
@@ -57,4 +70,4 @@ const ServerMember = ({ member }: IServerMemberProps) => {
     );
 };
 
-export default ServerMember;
+export default memo(ServerMember);

@@ -31,6 +31,17 @@ const DeleteServerModal = (props: IDeleteServerModalProps) => {
     const onDeleteServer = async () => {
         try {
             setIsLoading(true);
+
+            const otherServer = servers.filter((s) => s.id !== serverId);
+
+            if (otherServer.length > 0) {
+                router.push(
+                    `/servers/${otherServer[0].id}/channels/${otherServer[0].channels[0].id}`
+                );
+            } else {
+                router.push("/");
+            }
+
             const res = await RequestDeleteServer(
                 `/servers/${serverId}/delete`
             );

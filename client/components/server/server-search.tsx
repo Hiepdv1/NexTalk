@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { memo, useEffect, useState } from "react";
 import {
     CommandDialog,
     CommandEmpty,
@@ -38,7 +38,6 @@ const ServerSearch = ({ data }: IServerSearchProps) => {
         };
 
         document.addEventListener("keydown", keyDown);
-
         return () => document.removeEventListener("keydown", keyDown);
     }, []);
 
@@ -55,59 +54,56 @@ const ServerSearch = ({ data }: IServerSearchProps) => {
                 `/servers/${params?.serverId}/conversations/${id}`
             );
         }
-
         if (type === "Channel") {
             return router.push(`/servers/${params?.serverId}/channels/${id}`);
         }
     };
 
     return (
-        <div>
+        <>
             <button
                 onClick={() => setIsOpenComamnd(true)}
-                className="group px-2 py-2 rounded-md flex items-center gap-x-2 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition"
+                className="group px-2 py-2 rounded-md flex items-center gap-x-2 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition-all duration-200"
             >
                 <Search className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-                <p className="font-semibold text-sm text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300 transition">
+                <p className="font-semibold text-sm text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-300">
                     Search
                 </p>
                 <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground ml-auto">
-                    <span className="text-xs">⌘|⌃</span>K
+                    <span className="text-xs">⌘K</span>
                 </kbd>
             </button>
-            <CommandDialog
-                open={isOpenCommand}
-                onOpenChange={(open) => setIsOpenComamnd(open)}
-            >
+
+            <CommandDialog open={isOpenCommand} onOpenChange={setIsOpenComamnd}>
                 <DialogTitle>
-                    <CommandInput placeholder="Search all channels and members" />
+                    <CommandInput
+                        placeholder="Search channels and members..."
+                        className="border-none focus:ring-0"
+                    />
                 </DialogTitle>
                 <CommandList>
-                    <CommandEmpty>No Results found</CommandEmpty>
-                    {data?.map(({ label, type, values }, index) => {
+                    <CommandEmpty>No results found</CommandEmpty>
+                    {data?.map(({ label, type, values }) => {
                         if (!values?.length) return null;
                         return (
-                            <CommandGroup key={index} heading={label}>
-                                {values.map(({ id, name, icon }, index) => {
-                                    return (
-                                        <CommandItem
-                                            onSelect={() =>
-                                                onClick({ id, type })
-                                            }
-                                            key={index}
-                                        >
-                                            {icon}
-                                            <span>{name}</span>
-                                        </CommandItem>
-                                    );
-                                })}
+                            <CommandGroup key={label} heading={label}>
+                                {values.map(({ id, name, icon }) => (
+                                    <CommandItem
+                                        key={id}
+                                        onSelect={() => onClick({ id, type })}
+                                        className="flex items-center gap-2 px-2 py-1.5 cursor-pointer"
+                                    >
+                                        {icon}
+                                        <span>{name}</span>
+                                    </CommandItem>
+                                ))}
                             </CommandGroup>
                         );
                     })}
                 </CommandList>
             </CommandDialog>
-        </div>
+        </>
     );
 };
 
-export default ServerSearch;
+export default memo(ServerSearch);

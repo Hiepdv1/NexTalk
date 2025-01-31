@@ -91,9 +91,13 @@ export const PatchRequest = async (
 
 export const appendFormData = (data: Record<string, any>) => {
     const formData = new FormData();
+
     const keys = Object.keys(data);
     for (const key of keys) {
-        formData.append(key, data[key]);
+        if (data.hasOwnProperty(key)) {
+            const value = data[key];
+            formData.append(key, value);
+        }
     }
 
     return formData;

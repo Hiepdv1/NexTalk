@@ -10,6 +10,7 @@ import {
     Member,
     MemberRole,
     IDirectMessage,
+    MessageType,
 } from "@/interfaces";
 import { useUser } from "@clerk/nextjs";
 import { redirect, useRouter } from "next/navigation";
@@ -31,13 +32,19 @@ interface IDataProvider {
     isInteracted: React.MutableRefObject<boolean>;
 
     setProfile: (data: IProfile) => void;
-    setServers: (data: IServer[]) => void;
+    setServers: React.Dispatch<React.SetStateAction<IServer[]>>;
     setMessage: (serverId: string, channelId: string, data: IMessage) => void;
     handleEditMessage: (data: {
         messageId: string;
         serverId: string;
         channelId: string;
         content: string;
+        fileId?: string;
+        fileUrl?: string;
+        posterUrl?: string;
+        posterId?: string;
+        type?: string;
+        progress?: number;
         updatedAt: Date;
     }) => void;
 
@@ -83,6 +90,8 @@ interface IDataProvider {
     ) => void;
 
     handleAddMessageConversation: (data: IDirectMessage) => void;
+
+    handleupdateStatusUser: (userId: string, status: boolean) => void;
 }
 
 const DataContext = createContext<IDataProvider | undefined>(undefined);
@@ -99,7 +108,8 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
 
     const [profile, setProfile] = useState<IProfile | null>(null);
     const pathname = usePathname();
-    const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
+    const isAuthPage =
+        pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up");
 
     useEffect(() => {
         const fetchData = async () => {
@@ -119,6 +129,8 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             const { servers } = JSON.parse(decrypt(data)) as {
                 servers: Array<IServer>;
             };
+
+            console.log("Initital fetched servers: ", servers);
 
             if (servers) {
                 setServers(servers as any);
@@ -291,12 +303,14 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 (channel) => channel.id === data.id
             );
 
-            if (channel) return updatedServers;
+            if (channel) {
+                channel.name = data.name;
+                channel.type = data.type;
+                return updatedServers;
+            }
 
             if (!data.messages) data.messages = [];
             if (!data.members) data.members = [...server.members];
-
-            console.log("Update channel: ", data);
 
             server.channels.push(data);
 
@@ -354,35 +368,62 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         messageId,
         serverId,
         updatedAt,
+        fileId,
+        fileUrl,
+        posterId,
+        posterUrl,
+        type,
+        progress,
     }: {
         messageId: string;
         serverId: string;
         channelId: string;
         content: string;
         updatedAt: Date;
+        fileId?: string;
+        fileUrl?: string;
+        posterUrl?: string;
+        posterId?: string;
+        type?: string;
+        progress?: number;
     }) => {
         setServers((prevServers) => {
             const updatedServers = [...prevServers];
             const server = updatedServers.find(
                 (server) => server.id === serverId
             );
-            if (!server) return prevServers;
+            if (!server) {
+                console.log("Server not found");
+                return prevServers;
+            }
 
             const channel = server.channels.find(
                 (channel) => channel.id === channelId
             );
-            if (!channel) return prevServers;
+            if (!channel) {
+                console.log("Channel not found");
+                return prevServers;
+            }
 
             const message = channel.messages.find(
                 (message) => message.id === messageId
             );
-            if (!message) return prevServers;
+            if (!message) {
+                console.log("message not found");
+                return prevServers;
+            }
 
             if (message.content === content && message.updatedAt === updatedAt)
                 return prevServers;
 
-            message.content = content;
+            message.content = content ?? message.content;
             message.updatedAt = updatedAt;
+            message.fileId = fileId ?? message.fileId;
+            message.fileUrl = fileUrl ?? message.fileUrl;
+            message.posterId = posterId ?? message.posterId;
+            message.posterUrl = posterUrl ?? message.posterUrl;
+            message.type = (type as MessageType) ?? message.type;
+            message.progress = progress;
 
             return updatedServers;
         });
@@ -485,6 +526,23 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         });
     };
 
+    const handleupdateStatusUser = (userId: string, status: boolean) => {
+        setServers((prev) => {
+            const cloneData = [...prev];
+            cloneData.forEach((data) => {
+                const member = data.members.find(
+                    (member) => member.profile.userId === userId
+                );
+
+                if (member) {
+                    member.isOnline = status;
+                }
+            });
+
+            return cloneData;
+        });
+    };
+
     const handleOnChangeRoleMember = ({
         memberId,
         role,
@@ -542,6 +600,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 handleOnChangeRoleMember,
                 handelSetMessageConversationArray,
                 handleAddMessageConversation,
+                handleupdateStatusUser,
             }}
         >
             {children}

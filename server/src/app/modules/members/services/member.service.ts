@@ -19,6 +19,24 @@ export class MemberService {
     return member;
   }
 
+  public async getMemberById(memberId: string) {
+    return this.db.member.findUnique({
+      where: {
+        id: memberId,
+      },
+    });
+  }
+
+  public async getMemberByUserId(userId: string) {
+    return this.db.member.findFirst({
+      where: {
+        profile: {
+          userId,
+        },
+      },
+    });
+  }
+
   public async CountMembersInServer({
     userIds,
     serverId,

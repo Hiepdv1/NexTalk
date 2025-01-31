@@ -24,17 +24,6 @@ const ServerDetailPage = ({ params }: IServerDetailPageProps) => {
 
     if (!sendMessage) return notFound();
 
-    const handleUpdateDeletedServer = (data: any) => {
-        const encryptedData = JSON.parse(decrypt(data)) as { id: string };
-        const server = servers.find((server) => server.id !== encryptedData.id);
-        if (server) {
-            router.push(`/servers/${server.id}`);
-        } else {
-            router.push("/");
-        }
-        handleDeleteServer(encryptedData.id);
-    };
-
     const handleRemoveMember = (data: any) => {
         const encryptedData = JSON.parse(decrypt(data)) as {
             id: string;
@@ -47,15 +36,10 @@ const ServerDetailPage = ({ params }: IServerDetailPageProps) => {
     };
 
     useEffect(() => {
-        addListener("server:deleted:update", handleUpdateDeletedServer);
         addListener(
             `server:${params.serverId}:member:leave`,
             handleRemoveMember
         );
-
-        return () => {
-            removeListener("server:deleted:update", handleUpdateDeletedServer);
-        };
     }, []);
 
     useEffect(() => {

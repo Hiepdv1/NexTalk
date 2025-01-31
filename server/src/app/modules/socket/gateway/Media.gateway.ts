@@ -6,6 +6,7 @@ import {
   OnGatewayDisconnect,
   ConnectedSocket,
   OnGatewayInit,
+  MessageBody,
 } from '@nestjs/websockets';
 import { v4 as genuuid } from 'uuid';
 import { Server, Socket } from 'socket.io';
@@ -16,11 +17,9 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
-  UnauthorizedException,
   UseFilters,
   UseGuards,
   UseInterceptors,
-  UsePipes,
 } from '@nestjs/common';
 import { WsCombinedGuard } from 'src/common/guard/WsCombined.guard';
 import { AuthService } from '../../auth/services/auth.service';
@@ -32,11 +31,9 @@ import { ConfigService } from '@nestjs/config';
 import { ConversationService } from '../../conversation/services/conversation.service';
 import { ServerCacheService } from '../../server/services/serverCache.service';
 import { NotFoundError } from 'rxjs';
-import { ProfileCacheService } from '../../auth/services/profileCache.service';
 import { ConversationCacheService } from '../../conversation/services/conversationCache.service';
 import { MessageType, Profile } from '@prisma/client';
 import { DecryptDataInterceptor } from 'src/providers/interceptors/DecryptData.interceptor';
-import { DecryptDataPipe } from 'src/common/pipes/Decrypt-Data.pipe';
 import { CallService } from '../services/callService.service';
 import { WebSocketExceptionFilter } from 'src/common/exceptions/webSocket-exception.filter';
 import {
@@ -49,11 +46,35 @@ import {
   CreateProducerDto,
   FetchProducerExistingDto,
   PeerDisconnectedDto,
+  RestartProducerDto,
 } from '../dto/producer.dto';
-import { WsValidationInterceptor } from 'src/providers/interceptors/WsValidation.interceptor';
-import { CreateConsumerForProducerDto } from '../dto/consumer.dto';
-import { MediaStatuChangeDto } from '../dto/mediaStream.dto';
+import {
+  ConsumerRestartDto,
+  CreateConsumerForProducerDto,
+} from '../dto/consumer.dto';
+import {
+  IceCandidateConsumerDto,
+  IceCandidateProducerDto,
+  MediaStatuChangeDto,
+} from '../dto/mediaStream.dto';
 import { SocketService } from '../services/socket.service';
+import { InjectQueue } from '@nestjs/bullmq';
+import {
+  ChannelReadDto,
+  CreateChannelMessageDto,
+  FetchChannelMessageDto,
+  MessageChannelModifyDto,
+  MessageModifyMethod,
+} from '../dto/channel.dto';
+import { Queue } from 'bullmq';
+import {
+  CreateDirectMessageDto,
+  FetchConversationDto,
+} from '../dto/conversation.dto';
+import { DecryptAndValidatePipe } from '@src/providers/interceptors/DecryptAndValidatePipe.interceptor';
+import { MemberService } from '../../members/services/member.service';
+import { ChannelReadService } from '../../channelRead/services/channelRead.service';
+import { RedisCacheService } from '@src/providers/cache/redis.cache';
 
 @UseFilters(new WebSocketExceptionFilter())
 @WebSocketGateway({
@@ -80,6 +101,7 @@ export class MediaGateway
 
   private pingInterval: NodeJS.Timeout;
   private pingTimeout: NodeJS.Timeout;
+  private readonly debounceThreshold = 5000;
 
   constructor(
     private readonly socketService: SocketService,
@@ -92,7 +114,13 @@ export class MediaGateway
     private readonly serverCacheService: ServerCacheService,
     private readonly conversationService: ConversationService,
     private readonly conversationCacheService: ConversationCacheService,
-    private readonly profileCacheService: ProfileCacheService,
+    private readonly memberService: MemberService,
+    private readonly channelReadService: ChannelReadService,
+    private readonly redisCache: RedisCacheService,
+    @InjectQueue('ChannelMessage') private readonly channelMessageQueue: Queue,
+    @InjectQueue('DirectMessage') private readonly directMessageQueue: Queue,
+    @InjectQueue('ChannelRead') private readonly channelReadQueue: Queue,
+
     private readonly callService: CallService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
@@ -111,7 +139,7 @@ export class MediaGateway
         return;
       }
 
-      await this.socketService.handleConnection(socket); // 23h;
+      await this.socketService.handleConnection(socket, this.server); // 23h;
 
       const SERVER_STUNS = this.callService.GetTwilioStunServers();
 
@@ -141,7 +169,7 @@ export class MediaGateway
           this.SECRET_KEY
         );
 
-        socket.to(channelId).emit('leave-room-disconnected', encryptMessage);
+        this.server.emit('leave-room-disconnected', encryptMessage);
       }
     } catch (err: unknown) {
       if (err instanceof BaseWsException) {
@@ -167,22 +195,19 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('send_message')
-  public async handleSendChannelMessage(socket: Socket, values: any) {
-    const { channelId, memberId, content, serverId, timestamp } =
-      values.message;
-
-    if (!channelId || !memberId || !content || !timestamp)
-      throw new BadRequestException(
-        'Channel ID, Member ID, timestamp, and content are required.'
-      );
+  public async handleSendChannelMessage(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(CreateChannelMessageDto))
+    values: CreateChannelMessageDto
+  ) {
+    const { channelId, memberId, content, serverId, timestamp } = values;
 
     let server = await this.serverCacheService.getServerCache(serverId);
 
     if (!server) {
       server = await this.serverService.getServerById(serverId);
-      if (!server) throw new NotFoundException('The server does not exist');
+      if (!server) throw new WsNotFoundException('The server does not exist');
       await this.serverCacheService.setAndOverrideServerCache(
         server.id,
         server
@@ -193,13 +218,14 @@ export class MediaGateway
 
     const member = server.members.find((member) => member.id === memberId);
 
-    if (!channel) throw new NotFoundException("The channel doesn't exist");
+    if (!channel) throw new WsNotFoundException("The channel doesn't exist");
 
     const message = {
       id: genuuid(),
       content: content,
       channelId: channelId,
       memberId: memberId,
+      type: MessageType.TEXT,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -215,22 +241,33 @@ export class MediaGateway
 
     this.server.emit(`chat:${channelId}:messages`, encryptMessage);
 
-    await this.messageService.CreateMessage(message).catch((error) => {
-      this.logger.error('Error saving message:', error);
-    });
+    this.channelMessageQueue.add(
+      'ChannelMessage',
+      {
+        values: message,
+      },
+      {
+        removeOnComplete: true,
+        removeOnFail: 10,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      }
+    );
   }
 
   @UseGuards(WsCombinedGuard)
-  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('message_modify')
-  public async handleModifyMessage(socket: Socket, values: any) {
+  public async handleModifyMessage(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(MessageChannelModifyDto))
+    values: MessageChannelModifyDto
+  ) {
     try {
       const { channelId, memberId, content, serverId, messageId, method } =
-        values.message;
-      if (!channelId || !memberId || !serverId || !method)
-        throw new BadRequestException(
-          'Channel ID, Member ID, Server ID, Message ID, Method and content are required.'
-        );
+        values;
 
       const [serverCache, message] = await Promise.all([
         this.serverCacheService.getServerCache(serverId),
@@ -249,13 +286,15 @@ export class MediaGateway
       }
 
       if (!message) {
-        throw new NotFoundException('The messageId not found');
+        throw new WsNotFoundException('The messageId not found');
       }
 
       const member = server.members.find((member) => member.id === memberId);
 
       if (!member) {
-        throw new NotFoundException('The member does not exist in the server');
+        throw new WsNotFoundException(
+          'The member does not exist in the server'
+        );
       }
 
       const channel = server.channels.find(
@@ -263,7 +302,9 @@ export class MediaGateway
       );
 
       if (!channel)
-        throw new NotFoundException('The channel does not exist in the server');
+        throw new WsNotFoundException(
+          'The channel does not exist in the server'
+        );
 
       const isOwner = message.memberId === member.id;
       const isAdmin = member.role === 'ADMIN';
@@ -272,10 +313,10 @@ export class MediaGateway
       const canEdit = isOwner || isAdmin || isModerator;
 
       if (!canEdit) {
-        throw new UnauthorizedException('Unauthorized');
+        throw new WsUnauthorizedException('Unauthorized');
       }
 
-      if (method === 'DELETE') {
+      if (method === MessageModifyMethod.DELETE) {
         const messageData = JSON.stringify({
           ...message,
           deleted: true,
@@ -305,7 +346,7 @@ export class MediaGateway
               messageType: 'IMAGE',
             }),
           ]);
-        } else {
+        } else if (message.type !== MessageType.TEXT) {
           await this.messageService.addToTempStoreFile({
             fileId: message.fileId,
             storageType: message.storageType,
@@ -314,11 +355,7 @@ export class MediaGateway
         }
 
         return await this.messageService.deleteMessage(message.id);
-      } else if (method === 'PATCH') {
-        if (!content || content <= 0) {
-          throw new BadRequestException('Content is not a valid');
-        }
-
+      } else if (method === MessageModifyMethod.PATCH) {
         const updatedAt = new Date();
 
         const messsgaParams = JSON.stringify({
@@ -358,14 +395,20 @@ export class MediaGateway
 
   @UseGuards(WsCombinedGuard)
   @SubscribeMessage('fetch:messages')
-  public async fetchMessages(socket: Socket, values: any) {
+  public async fetchMessages(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(FetchChannelMessageDto))
+    values: FetchChannelMessageDto
+  ) {
     try {
-      const { cursor, serverId, channelId } = values?.query;
+      const { cursor, serverId, channelId } = values;
 
       if (!serverId || !channelId)
         throw new BadRequestException(
           'The serverId and channelId are required'
         );
+
+      console.log('Fetch message conversation Cursor: ', cursor);
 
       const serverCache =
         await this.serverCacheService.getServerCache(serverId);
@@ -407,10 +450,7 @@ export class MediaGateway
         this.SECRET_KEY
       );
 
-      return this.server.emit(
-        `messages:server:${serverId}:channel:${channelId}`,
-        encryptData
-      );
+      return socket.emit('res-fetch-messages', encryptData);
     } catch (error: any) {
       if (error instanceof HttpException) {
         socket.emit('error', { error });
@@ -426,30 +466,24 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('fetch:conversation')
-  public async fetchConversation(socket: Socket, values: any) {
-    const { memberTwoId, memberOneId, serverId } = values.message;
+  public async fetchConversation(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(FetchConversationDto))
+    values: FetchConversationDto
+  ) {
+    const { memberTwoId, memberOneId, serverId } = values;
 
-    if (!memberTwoId || !memberOneId || !serverId)
-      throw new BadRequestException(
-        'The memberOne Id, Id memberTwo Id and serverId are required'
-      );
-
-    if (memberOneId === memberTwoId)
-      throw new BadRequestException(
-        'The memberOneId and memberTwoId does not same'
-      );
-
-    // eslint-disable-next-line prefer-const
-    let [server, conversationCache] = await Promise.all([
+    const [serverCache, conversationCache] = await Promise.all([
       this.serverCacheService.getServerCache(serverId),
       this.conversationCacheService.getConversationCache({ serverId }),
     ]);
 
+    let server = serverCache;
+
     if (!server) {
       server = await this.serverService.getServerById(serverId);
-      if (!server) throw new NotFoundException('The user does not exist');
+      if (!server) throw new WsNotFoundException('The user does not exist');
       await this.serverCacheService.setAndOverrideServerCache(serverId, server);
     }
 
@@ -458,19 +492,20 @@ export class MediaGateway
     );
 
     if (!memberOne)
-      throw new NotFoundException('The memberOneId does not exist this server');
+      throw new WsNotFoundException(
+        'The memberOneId does not exist this server'
+      );
 
     const memberTwo = server.members.find(
       (member) => member.id === memberTwoId
     );
 
     if (!memberTwo)
-      throw new NotFoundException('The memberTwoId does not exist this server');
+      throw new WsNotFoundException(
+        'The memberTwoId does not exist this server'
+      );
 
     if (conversationCache) {
-      const key = [memberOneId, memberTwoId];
-      key.sort();
-
       let conversation = conversationCache.find(
         (con) =>
           ((con.memberOneId === memberOneId &&
@@ -484,12 +519,6 @@ export class MediaGateway
           memberOneId,
           memberTwoId
         );
-
-        if (!conversation) {
-          throw new WsNotFoundException(
-            "The memberOneId and memberTwoId doesn't have created conversation"
-          );
-        }
 
         await this.conversationCacheService.setAndOverrideConversationCache(
           { serverId },
@@ -506,7 +535,7 @@ export class MediaGateway
         }),
         this.SECRET_KEY
       );
-      this.server.emit(`conversation:${key.join('-')}`, encryptData);
+      this.server.emit('conversation:updated:global', encryptData);
       return;
     }
 
@@ -528,11 +557,7 @@ export class MediaGateway
       this.SECRET_KEY
     );
 
-    const key = [memberOneId, memberTwoId];
-
-    key.sort();
-
-    this.server.emit(`conversation:${key.join('-')}`, encryptData);
+    this.server.emit('conversation:updated:global', encryptData);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { profile: m1, ...restM1 } = memberOne;
@@ -561,6 +586,7 @@ export class MediaGateway
       ),
     ]);
   }
+
   @UseGuards(WsCombinedGuard)
   @SubscribeMessage('fetch:conversation:message')
   public async fetchConversationMessage(socket: Socket, values: any) {
@@ -582,37 +608,39 @@ export class MediaGateway
       await this.serverCacheService.setAndOverrideServerCache(serverId, server);
     }
 
-    const directMessage = await this.conversationService.getDirectMessageById({
-      conversationId,
-      cursor,
-    });
+    const directMessage =
+      await this.conversationService.getDirectMessageByConversationId({
+        conversationId,
+        cursor,
+      });
 
     if (!directMessage)
       throw new NotFoundException('The server does not exist');
 
+    console.log('Fetch Conversation Message: ', directMessage);
+
+    let nextCursor = null;
+
+    if (directMessage.length === this.MESSAGE_BATCH) {
+      nextCursor = directMessage[directMessage.length - 1].id;
+    }
+
     const encryptData = AppHelperService.encrypt(
-      JSON.stringify(directMessage),
+      JSON.stringify({ directMessage, nextCursor }),
       this.SECRET_KEY
     );
 
-    this.server.emit(
-      `server:${serverId}:conversation:${conversationId}:message`,
-      encryptData
-    );
+    socket.emit('res-fetch-messages', encryptData);
   }
 
   @UseGuards(WsCombinedGuard)
-  @UsePipes(new DecryptDataPipe(['message']))
   @SubscribeMessage('send_message_conversation')
-  public async handleSendMessageConversation(socket: Socket, values: any) {
-    const { content, memberId, serverId, timestamp, otherMemberId } =
-      values.message;
-
-    if (!content || !memberId || !serverId || !timestamp || !otherMemberId) {
-      throw new BadRequestException(
-        'The content, memberId, serverId, timestamp and otherMemberId are required'
-      );
-    }
+  public async handleSendMessageConversation(
+    socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(CreateDirectMessageDto))
+    values: CreateDirectMessageDto
+  ) {
+    const { content, memberId, serverId, timestamp, otherMemberId } = values;
 
     if (memberId == otherMemberId)
       throw new BadRequestException(
@@ -620,7 +648,9 @@ export class MediaGateway
       );
 
     if (content.length < 1)
-      throw new BadRequestException('The content must be at least 1 character');
+      throw new WsBadRequestException(
+        'The content must be at least 1 character'
+      );
 
     const [serverCache, conversationCache] = await Promise.all([
       this.serverCacheService.getServerCache(serverId),
@@ -635,11 +665,9 @@ export class MediaGateway
         (con.memberOne.id === otherMemberId && con.memberTwo.id === memberId)
     );
 
-    console.log('Existing Conversation: ', conversation);
-
     if (!server) {
       server = await this.serverService.getServerById(serverId);
-      if (!server) throw new NotFoundException('The serverId does not exist');
+      if (!server) throw new WsNotFoundException('The serverId does not exist');
       await this.serverCacheService.setAndOverrideServerCache(serverId, server);
     }
 
@@ -651,15 +679,13 @@ export class MediaGateway
       const conversationId = genuuid();
 
       if (!memberOne && !memberTwo)
-        throw new NotFoundException('The member one or member two not found');
+        throw new WsNotFoundException('The member one or member two not found');
 
       conversation = await this.conversationService.getOrCreateConversation(
         memberOne.id,
         memberTwo.id,
         conversationId
       );
-
-      console.log('Find Db COnversation');
 
       conversationCache.push({
         id: conversation.id,
@@ -701,13 +727,78 @@ export class MediaGateway
         ...directMessage,
         member,
         timestamp,
+        serverId: server.id,
       }),
       this.SECRET_KEY
     );
 
-    this.server.emit(`chat:${server.id}:conversation:message`, encryptData);
+    console.log('Emmiting Chat conversation Global Message');
 
-    await this.conversationService.createDirectMessage(directMessage);
+    this.server.emit('chat:conversation:message:global', encryptData);
+
+    this.directMessageQueue.add(
+      'DirectMessage',
+      {
+        values: directMessage,
+      },
+      {
+        removeOnComplete: true,
+        removeOnFail: 10,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      }
+    );
+  }
+
+  @UseGuards(WsCombinedGuard)
+  @SubscribeMessage('channel-read')
+  public async handleChannelRead(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(ChannelReadDto))
+    values: ChannelReadDto
+  ) {
+    const { channelId } = values;
+
+    const cacheKey = `channel-read:${socket.userId}:${channelId}`;
+    const lastReadTimestamp: number = await this.redisCache.getCache(cacheKey);
+    const now = Date.now();
+
+    if (lastReadTimestamp && now - lastReadTimestamp < this.debounceThreshold) {
+      this.logger.debug(
+        `Debounce: Skip updating channel-read for user ${socket.userId} in channel ${channelId}`
+      );
+      return;
+    }
+
+    const profile = await this.authService.findUserById(socket.userId);
+
+    await this.redisCache.setCache(
+      cacheKey,
+      now,
+      this.debounceThreshold / 1000
+    );
+
+    this.channelReadQueue.add(
+      'ChannelRead',
+      {
+        values: {
+          profileId: profile.id,
+          channel_id: channelId,
+        },
+      },
+      {
+        removeOnComplete: true,
+        removeOnFail: 10,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      }
+    );
   }
 
   @UseGuards(WsCombinedGuard)
@@ -817,13 +908,66 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(
-    new DecryptDataInterceptor(['message']),
-    new WsValidationInterceptor(CreateProducerDto)
-  )
+  @SubscribeMessage('producer-restart-required')
+  public async RestartProducer(
+    socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(RestartProducerDto))
+    values: RestartProducerDto
+  ) {
+    const { channelId, type, sdp, producerId } = values;
+
+    const channel = this.callService.getChannel(channelId);
+
+    if (!channel) throw new WsNotFoundException('The channelId not found');
+
+    const participant = channel.participants.get(socket.id);
+
+    if (!participant)
+      throw new WsNotFoundException('The participant not found');
+
+    await this.callService.createProducer({
+      roomId: channelId,
+      socketId: socket.id,
+      sdp,
+      userId: socket.userId,
+      type,
+      socket,
+      _producerId: producerId,
+    });
+  }
+
+  @UseGuards(WsCombinedGuard)
+  @SubscribeMessage('consumer-restart-required')
+  public async RestartConsumer(
+    socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(ConsumerRestartDto))
+    values: ConsumerRestartDto
+  ) {
+    const { channelId, producerId, consumerId, participantId, sdp } = values;
+
+    const channel = this.callService.getChannel(channelId);
+
+    if (!channel) throw new WsBadRequestException('The ChannelId not found');
+
+    await this.callService.createConsumer({
+      roomId: channelId,
+      participantId,
+      sdp,
+      producerId,
+      socketId: socket.id,
+      socket,
+      _consumerId: consumerId,
+    });
+  }
+
+  @UseGuards(WsCombinedGuard)
   @SubscribeMessage('create-producer')
-  public async handleCreateProducer(@ConnectedSocket() socket: Socket) {
-    const { channelId, sdp, type } = socket.data.validatedMessage;
+  public async handleCreateProducer(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(CreateProducerDto))
+    values: CreateProducerDto
+  ) {
+    const { channelId, sdp, type, producerId } = values;
 
     const channel = this.callService.getChannel(channelId);
 
@@ -840,21 +984,9 @@ export class MediaGateway
       sdp,
       userId: socket.userId,
       type,
+      socket,
+      _producerId: producerId,
     });
-
-    const peerProducer = newProducer.peer;
-
-    newProducer.peer.oniceconnectionstatechange = () => {
-      const state = peerProducer.iceConnectionState;
-
-      if (state === 'failed' || state === 'disconnected') {
-        socket.emit('error', {
-          message: 'Producer Connected Failed',
-          producerId: newProducer.senderId,
-          kind: newProducer.kind,
-        });
-      }
-    };
 
     const encryptProducer = AppHelperService.encrypt(
       JSON.stringify({
@@ -872,7 +1004,7 @@ export class MediaGateway
     const encryptNewProducer = AppHelperService.encrypt(
       JSON.stringify({
         producerId: newProducer.id,
-        participantId: newProducer.senderId,
+        participantId: socket.id,
         kind: newProducer.kind,
         userId: newProducer.userId,
         type,
@@ -891,14 +1023,13 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(
-    new DecryptDataInterceptor(['message']),
-    new WsValidationInterceptor(CreateConsumerForProducerDto)
-  )
   @SubscribeMessage('create-consumer-for-producer')
-  public async handleCreateConsume(@ConnectedSocket() socket: Socket) {
-    const { channelId, participantId, sdp, kind, producerId } = socket.data
-      .validatedMessage as CreateConsumerForProducerDto;
+  public async handleCreateConsume(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(CreateConsumerForProducerDto))
+    values: CreateConsumerForProducerDto
+  ) {
+    const { channelId, participantId, sdp, producerId, consumerId } = values;
 
     const channel = this.callService.getChannel(channelId);
 
@@ -908,27 +1039,11 @@ export class MediaGateway
       roomId: channelId,
       participantId,
       sdp,
-      kind,
       producerId,
       socketId: socket.id,
+      socket,
+      _consumerId: consumerId,
     });
-
-    console.log('Consumer-for-producer: ', socket.id);
-
-    consumerData.peer.oniceconnectionstatechange = () => {
-      if (
-        consumerData.peer.iceConnectionState === 'failed' ||
-        consumerData.peer.iceConnectionState === 'disconnected'
-      ) {
-        console.log('Consumer disconnected');
-        socket.emit('error', {
-          message: 'Consumer failed',
-          producerId: consumerData.participantId,
-          kind: consumerData.kind,
-          userId: consumerData.userId,
-        });
-      }
-    };
 
     const encryptData = AppHelperService.encrypt(
       JSON.stringify({
@@ -971,14 +1086,13 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(
-    new DecryptDataInterceptor(['message']),
-    new WsValidationInterceptor(PeerDisconnectedDto)
-  )
   @SubscribeMessage('peer-disconnected')
-  public async handlePeerDisconnected(@ConnectedSocket() socket: Socket) {
-    const { channelId, producerId, type } = socket.data
-      .validatedMessage as PeerDisconnectedDto;
+  public async handlePeerDisconnected(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(PeerDisconnectedDto))
+    values: PeerDisconnectedDto
+  ) {
+    const { channelId, producerId, type } = values;
 
     const channel = this.callService.getChannel(channelId);
 
@@ -1026,20 +1140,52 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(
-    new DecryptDataInterceptor(['message']),
-    new WsValidationInterceptor(FetchProducerExistingDto)
-  )
+  @SubscribeMessage('ice-candidate-producer')
+  public async handleIceCandidateProducer(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(IceCandidateProducerDto))
+    values: IceCandidateProducerDto
+  ) {
+    const { roomId, candidate, producerId } = values;
+
+    await this.callService.AddIceCandidateForProducer({
+      roomId,
+      candidate,
+      producerId,
+      socketId: socket.id,
+    });
+  }
+
+  @UseGuards(WsCombinedGuard)
+  @SubscribeMessage('ice-candidate-consumer')
+  public async handleIceCandidateConsumer(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(IceCandidateConsumerDto))
+    values: IceCandidateConsumerDto
+  ) {
+    const { roomId, candidate, consumerId } = values;
+    await this.callService.AddIceCandidateForConsumer({
+      roomId,
+      candidate,
+      consumerId,
+      socketId: socket.id,
+    });
+  }
+
+  @UseGuards(WsCombinedGuard)
   @SubscribeMessage('fetch-existing-producers')
-  public async handleConsumers(@ConnectedSocket() socket: Socket) {
-    const { channelId, data } = socket.data
-      .validatedMessage as FetchProducerExistingDto;
+  public async handleConsumers(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(FetchProducerExistingDto))
+    values: FetchProducerExistingDto
+  ) {
+    const { channelId, data } = values;
 
     const channel = this.callService.getChannel(channelId);
 
     if (!channel) throw new WsNotFoundException("The Channel doesn't exist");
 
-    const listSdpConnectedConsumers = data.map((producerConnect) => {
+    const listSdpConnectedConsumers = data.map(async (producerConnect) => {
       const existingParticipant = channel.participants.get(
         producerConnect.participantId
       );
@@ -1054,13 +1200,14 @@ export class MediaGateway
       if (!existingProducer)
         throw new NotFoundException('The producerId not found');
 
-      const newConsumer = this.callService.createConsumer({
+      const newConsumer = await this.callService.createConsumer({
         socketId: socket.id,
         participantId: producerConnect.participantId,
-        kind: existingProducer.kind,
         producerId: producerConnect.producerId,
         roomId: channelId,
         sdp: producerConnect.sdp,
+        socket,
+        _consumerId: producerConnect.consumerId,
       });
 
       return newConsumer;
@@ -1087,16 +1234,13 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
-  @UseInterceptors(
-    new DecryptDataInterceptor(['message']),
-    new WsValidationInterceptor(MediaStatuChangeDto)
-  )
   @SubscribeMessage('media-status-change')
   public async handleUpdateMediaStatusChange(
-    @ConnectedSocket() socket: Socket
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(MediaStatuChangeDto))
+    values: MediaStatuChangeDto
   ) {
-    const { channelId, isCamera, isMic } = socket.data
-      .validatedMessage as MediaStatuChangeDto;
+    const { channelId, isCamera, isMic } = values;
 
     const channel = this.callService.getChannel(channelId);
 

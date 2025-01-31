@@ -54,8 +54,6 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
         handleOnChangeRoleMember(decryptData);
     };
 
-    const handleInCommingMessageConversation = (data: any) => {};
-
     useEffect(() => {
         addListener(
             `server:${params.serverId}:member:kick`,

@@ -13,9 +13,13 @@ export type ModalType =
     | "DeleteChannel"
     | "EditChannel"
     | "MessageFile"
-    | "DeleteMessage";
+    | "DeleteMessage"
+    | "EditMessageFile"
+    | "InitialModal";
 
 type ModalData = Partial<{
+    currentMessageUrl?: string;
+    posterImageUrl?: string;
     inviteCode: string;
     serverId: string;
     serverName: string;
@@ -27,6 +31,7 @@ type ModalData = Partial<{
     file: File;
     query: Record<string, any>;
     apiUrl: string;
+    fileId?: string;
     onDeleteMessage: () => void;
     onUploadFile: (data: any) => void;
 }>;

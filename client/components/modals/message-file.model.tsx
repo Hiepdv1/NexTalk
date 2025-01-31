@@ -30,13 +30,6 @@ import { DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import LoadingForm from "../loadding/loadding.form";
 import { useModal } from "@/hooks/use-modal-store";
-import qs from "query-string";
-import { PostRequest } from "@/API/api";
-import { RequestUploadFileMessage } from "@/API";
-import { usePendingMessages } from "../providers/pending-message";
-import { useUser } from "@clerk/nextjs";
-import { useSocket } from "../providers/socket-provider";
-import { AxiosProgressEvent } from "axios";
 
 interface IMessageFileModalProps {}
 

@@ -40,18 +40,18 @@ export default function RootLayout({
                         enableSystem={false}
                         storageKey="mode-theme"
                     >
-                        <SocketProvider>
-                            <SocketEventProvider>
-                                <DataProvider>
-                                    <PendingMessagesProvider>
-                                        <ModalProvider />
+                        <DataProvider>
+                            <SocketProvider>
+                                <PendingMessagesProvider>
+                                    <SocketEventProvider>
                                         <QueryProvider>
+                                            <ModalProvider />
                                             {children}
                                         </QueryProvider>
-                                    </PendingMessagesProvider>
-                                </DataProvider>
-                            </SocketEventProvider>
-                        </SocketProvider>
+                                    </SocketEventProvider>
+                                </PendingMessagesProvider>
+                            </SocketProvider>
+                        </DataProvider>
                     </ThemeProvider>
                 </body>
             </html>

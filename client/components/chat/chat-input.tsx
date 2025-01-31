@@ -45,7 +45,9 @@ const ChatInput = ({
     const {
         addPendingMessage,
         updatePendingMessage,
+        updatePendingDirectMessages,
         removePendingMessageByTimestamp,
+        handelRemovePendingDirectMessages,
         handleAddPendingDirectMessage,
     } = usePendingMessages();
     const { user, isLoaded, isSignedIn } = useUser();
@@ -114,6 +116,7 @@ const ChatInput = ({
         value: z.infer<typeof ChatInputSchema>
     ) => {
         if (!sendMessage || !user || !conversation) return;
+        console.log("Send Conversation message: ", conversation);
         handleAddPendingDirectMessage({
             conversationId: conversation.id,
             message: value.content,
@@ -163,10 +166,17 @@ const ChatInput = ({
         totalSize: number
     ) => {
         const percent = Math.floor((progressEvent.loaded / totalSize) * 100);
-        updatePendingMessage({
-            timestamp,
-            progressUploaded: percent,
-        });
+        if (type === "channel") {
+            updatePendingMessage({
+                timestamp,
+                progressUploaded: percent,
+            });
+        } else {
+            updatePendingDirectMessages({
+                timestamp,
+                progressUploaded: percent,
+            });
+        }
     };
 
     const handleIncomingMessage = (values: {
@@ -175,6 +185,8 @@ const ChatInput = ({
         timestamp: number;
     }) => {
         if (!user) return;
+
+        console.log("Incoming message");
 
         if (channel && type === "channel") {
             addPendingMessage({
@@ -188,6 +200,7 @@ const ChatInput = ({
                 fileUrl: values.pathFile,
             });
         } else if (type === "conversation") {
+            console.log("Add Pending Conversation message");
             handleAddPendingDirectMessage({
                 message: values.file.name,
                 name: `${user.firstName} ${user.lastName || ""}`,
@@ -225,7 +238,11 @@ const ChatInput = ({
         );
 
         if (res?.data.statusCode == 200) {
-            removePendingMessageByTimestamp(timestamp);
+            if (type === "channel") {
+                removePendingMessageByTimestamp(timestamp);
+            } else {
+                handelRemovePendingDirectMessages(timestamp);
+            }
         }
     };
 

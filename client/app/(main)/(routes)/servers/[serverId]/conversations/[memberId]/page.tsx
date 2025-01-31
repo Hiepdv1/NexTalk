@@ -1,13 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { RequestGetConversation } from "@/API/conversation.api";
-import {
-    Conversation,
-    GetOrCreateConversationResponse,
-} from "@/interfaces/conversation.interface";
-import { notFound, useRouter } from "next/navigation";
-import { useAuth } from "@clerk/nextjs";
+import { useEffect } from "react";
+import { notFound } from "next/navigation";
 import ChatHeader from "@/components/chat/chat-header";
 import { useData } from "@/components/providers/data-provider";
 import ChatMessage from "@/components/chat/chat-message";
@@ -72,8 +66,6 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
         }
     };
 
-    const handleIncommingConversationMessage = (data: any) => {};
-
     useEffect(() => {
         if (!sendMessage) return;
 
@@ -86,21 +78,12 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
             handleGetConversation
         );
 
-        addListener(
-            `chat:conversation:${conversation?.id}:message`,
-            handleIncommingConversationMessage
-        );
-
         handleFetchConversation();
 
         return () => {
             removeListener(
                 `conversation:${memberIds.join("-")}`,
                 handleGetConversation
-            );
-            removeListener(
-                `chat:conversation:${conversation?.id}:message`,
-                handleIncommingConversationMessage
             );
         };
     }, [conversation]);
@@ -114,6 +97,7 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
                 imageUrl={otherMember.profile.imageUrl}
                 serverId={params.serverId}
                 type="conversation"
+                isOnline={otherMember.isOnline}
             />
             <ChatMessage
                 member={otherMember}

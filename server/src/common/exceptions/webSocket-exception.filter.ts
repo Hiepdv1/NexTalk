@@ -22,7 +22,6 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
       this.configService.get<string>('NODE_ENV') === 'production';
 
     try {
-      console.log('Exception Filter: ', exception);
       const error = this.normalizeError(exception, client, isProduction, event);
       this.formatErrorLog(error, client, isProduction, event);
 
@@ -74,6 +73,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
           transportId: client.data?.transportId,
           event,
           socketId: client.id,
+          stack: exception.stack,
         },
       });
     }
@@ -85,6 +85,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
           socketId: client.id,
           event,
           namespace: client.nsp.name,
+          stack: exception.stack,
         },
       });
     }
@@ -96,6 +97,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
         metadata: {
           constraints: exception.constraints,
           value: exception.value,
+          stack: exception.stack,
         },
       });
     }
@@ -106,6 +108,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
         metadata: {
           target: exception.meta?.target,
           details: exception.meta,
+          stack: exception.stack,
         },
       });
     }
@@ -122,6 +125,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
             name: exception.name,
             type: exception.type,
             event,
+            stack: exception.stack,
           },
         },
       }
@@ -164,7 +168,7 @@ export class WebSocketExceptionFilter extends BaseWsExceptionFilter {
       ...this.formatJSONLines(error.details?.metadata || {}),
     ];
 
-    if (!isProduction && error.stack) {
+    if (error.stack) {
       errorLog.push(
         '╟────────────────────────── Stack Trace ────────────────────────────',
         ...error.stack.split('\n').map((line) => `║ ${line.trim()}`)

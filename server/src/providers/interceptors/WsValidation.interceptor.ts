@@ -4,7 +4,7 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, tap } from 'rxjs';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { Socket } from 'socket.io';
@@ -39,15 +39,21 @@ export class WsValidationInterceptor<T> implements NestInterceptor {
         const constraints = Object.values(error.constraints || {}).join(', ');
         return `${error.property}: ${constraints}`;
       });
-
+      console.log('Message decrypted: ', message);
       throw new WsBadRequestException(
-        `Validation failed: ${errorMessages.join('; ')}`
+        `${this.dto.name} - Validation failed: ${errorMessages.join('; ')}`
       );
     }
 
     socket.data.validatedMessage = dtoInstance;
     socket.data.decrypted.message = null;
 
-    return next.handle();
+    return next.handle().pipe(
+      tap(() => {
+        const socket: Socket = context.switchToWs().getClient();
+        socket.data.validatedMessage = null;
+        socket.data.decrypted.message = null;
+      })
+    );
   }
 }

@@ -34,6 +34,8 @@ import LoadingForm from "../loadding/loadding.form";
 import { useModal } from "@/hooks/use-modal-store";
 import { useAuth } from "@clerk/nextjs";
 import { useSocket } from "../providers/socket-provider";
+import { useData } from "../providers/data-provider";
+import { IServer } from "@/interfaces";
 
 interface ICreateServerModalProps {
     userId: string;
@@ -57,9 +59,8 @@ const CreateServerModal = (props: ICreateServerModalProps) => {
     });
 
     const isLoading = form.formState.isSubmitting;
+    const { setServers } = useData();
     const { isOpen, onClose, type } = useModal();
-    const { sendMessage } = useSocket();
-    const router = useRouter();
 
     const isModalOpen = isOpen && type === "CreateServer";
 
@@ -71,8 +72,9 @@ const CreateServerModal = (props: ICreateServerModalProps) => {
     };
 
     const handleOnsubmitForm = async (values: z.infer<typeof ServerSchema>) => {
-        if (!sendMessage) return;
         const { userId } = props;
+        console.log("Submit create Server");
+
         const res = await RequestCreateServer(
             {
                 profileId: userId,
@@ -86,9 +88,10 @@ const CreateServerModal = (props: ICreateServerModalProps) => {
             }
         );
 
-        const isSuccessful = res?.data?.statusCode === 200;
+        const isSuccessful = res?.data.id;
 
         if (isSuccessful) {
+            setServers((prev) => [...prev, res.data]);
             form.reset();
             onClose();
             setPreview(null);

@@ -4,6 +4,7 @@ import * as z from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import Image from "next/image";
+import { CircleX } from "lucide-react";
 
 import {
     Form,
@@ -28,6 +29,7 @@ import {
     ChangeEvent,
     memo,
     MutableRefObject,
+    useCallback,
     useEffect,
     useRef,
     useState,
@@ -38,6 +40,8 @@ import { DragEvent } from "react";
 import { RequestCreateServer } from "@/API";
 import { useRouter } from "next/navigation";
 import LoadingForm from "../loadding/loadding.form";
+import { useModal } from "@/hooks/use-modal-store";
+import { useData } from "../providers/data-provider";
 
 interface IInitialModalProps {
     userId?: string;
@@ -52,8 +56,13 @@ const InitialModal = (props: IInitialModalProps) => {
         image: null,
     });
 
+    const { isOpen, type, onClose } = useModal();
+    const { setServers } = useData();
+
     const inputFileRef: MutableRefObject<HTMLInputElement | null> =
         useRef(null);
+
+    const isOpenModal = isOpen && type === "InitialModal";
 
     const form = useForm<z.infer<typeof ServerSchema>>({
         resolver: zodResolver(ServerSchema),
@@ -88,6 +97,8 @@ const InitialModal = (props: IInitialModalProps) => {
             }
         );
         if (res && res.data) {
+            setServers((prev) => [...prev, res.data]);
+
             form.reset();
             router.push(`/servers/${res.data.id}`);
         }
@@ -129,13 +140,27 @@ const InitialModal = (props: IInitialModalProps) => {
         handleSetValidationFile(files);
     };
 
+    const handleRemovePreview = useCallback(() => {
+        setPreview({
+            path: null,
+            image: null,
+        });
+        form.setValue("image", null);
+    }, [form]);
+
     return (
-        <Dialog open>
+        <Dialog open={isOpenModal}>
             <DialogContent className=" text-black border-0 p-0 overflow-hidden select-none">
                 <LoadingForm isLoading={isLoading}>
                     <DialogHeader className="pt-8 px-6">
-                        <DialogTitle className="text-2xl text-center font-bold">
-                            Customize you server
+                        <DialogTitle className="text-2xl text-center font-bold relative">
+                            <span>Customize you server</span>
+                            <button
+                                onClick={() => onClose("InitialModal")}
+                                className="absolute -top-2 right-0"
+                            >
+                                <CircleX size={24} />
+                            </button>
                         </DialogTitle>
                         <DialogDescription className="text-center text-zinc-500">
                             Give your server a personality with a name and an
@@ -184,6 +209,9 @@ const InitialModal = (props: IInitialModalProps) => {
                                                             preview.path || ""
                                                         }
                                                         description=""
+                                                        onClose={
+                                                            handleRemovePreview
+                                                        }
                                                     >
                                                         <Input
                                                             disabled={isLoading}

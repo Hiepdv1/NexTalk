@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useSocket } from "../providers/socket-provider";
 import { useSocketEvents } from "../providers/socket-event-provider";
 import { decrypt } from "@/utility/app.utility";
@@ -8,6 +8,11 @@ import MediaStreamComponent from "./mediastream";
 import { useRouter } from "next/navigation";
 import VideoScreenComponent from "./videoScreen";
 import { IServer } from "@/interfaces";
+import { v4 as genuid } from "uuid";
+import {
+    ResICECandidateConsumer,
+    ResICECandidateProducer,
+} from "@/types/mediaStream.type";
 
 interface IVideoCallProps {
     roomId: string;
@@ -36,16 +41,19 @@ interface IStreamScreen {
     isScreenBroadcasting: boolean;
 }
 
-const VideoCall = ({
-    roomId,
-    isAudioCall = true,
-    isVideoCall = true,
-    currentProfile,
-    servers,
-}: IVideoCallProps) => {
+const VideoCall = ({ roomId, currentProfile, servers }: IVideoCallProps) => {
     const { sendMessage, socket, StunServers: SERVER_STUNS } = useSocket();
     const { addListener, removeListener } = useSocketEvents();
     const router = useRouter();
+
+    const PEER_CONFIG: RTCConfiguration = {
+        iceServers: SERVER_STUNS?.current,
+        iceTransportPolicy: "all",
+        iceCandidatePoolSize: 10,
+        bundlePolicy: "max-bundle",
+    };
+
+    const iceQueue = useRef<Map<string, RTCIceCandidate[]>>(new Map());
 
     const [isVideoEnabling, setIsVideoEnabling] = useState<boolean>(false);
     const [isAudioEnabling, setIsAudioEnabling] = useState<boolean>(false);
@@ -138,6 +146,29 @@ const VideoCall = ({
         await handleFetchBroadcasts(broadcasts);
     };
 
+    const handleConnectionFailure = (
+        peer: RTCPeerConnection,
+        retryCount = 0
+    ) => {
+        const MAX_RETRIES = 3;
+
+        if (retryCount >= MAX_RETRIES) {
+            peer.close();
+            return;
+        }
+
+        const restart = () => {
+            try {
+                peer.restartIce();
+                console.log(`ICE restart attempt ${retryCount + 1}`);
+            } catch (error) {
+                handleConnectionFailure(peer, retryCount + 1);
+            }
+        };
+
+        setTimeout(restart, 2000 * Math.pow(2, retryCount));
+    };
+
     const handleFetchBroadcasts = async (
         producersActive: Array<{
             participantId: string;
@@ -150,19 +181,15 @@ const VideoCall = ({
         const createPeers = producersActive.map(async (info) => {
             const { participantId, producerId, type, userId, kind } = info;
 
-            return new Promise<{
-                peer: RTCPeerConnection;
-                sdp: any;
-                participantId: string;
-                producerId: string;
-                userId: string;
-            }>((resolve) => {
-                const peer = new RTCPeerConnection({
-                    iceServers: SERVER_STUNS.current,
-                });
+            const peer = new RTCPeerConnection(PEER_CONFIG);
 
-                peer.onicecandidate = (event) => {
-                    if (event.candidate) {
+            const consumerId = genuid();
+
+            const iceMessageQueue: RTCIceCandidate[] = [];
+
+            peer.onicecandidate = (event) => {
+                if (event.candidate) {
+                    if (peer.remoteDescription) {
                         console.log("ICE candidate:", {
                             type: event.candidate.type,
                             protocol: event.candidate.protocol,
@@ -170,223 +197,38 @@ const VideoCall = ({
                             port: event.candidate.port,
                             foundation: event.candidate.foundation,
                         });
+                        sendMessage(
+                            "ice-candidate-consumer",
+                            {
+                                roomId,
+                                candidate: event.candidate,
+                                consumerId,
+                            },
+                            "POST"
+                        );
                     } else {
-                        console.log("ICE gathering completed");
+                        iceMessageQueue.push(event.candidate);
                     }
-                };
-
-                peer.ontrack = (e: RTCTrackEvent) => {
-                    const streams = e.streams;
-
-                    if (type === "screen") {
-                        const combinedStream = new MediaStream();
-
-                        streams.forEach((stream) => {
-                            stream.getTracks().forEach((track) => {
-                                combinedStream.addTrack(track);
-                            });
-                        });
-
-                        const screenSharing = {
-                            id: userId,
-                            isLocal: currentProfile.userId === userId,
-                            participantId,
-                            stream: combinedStream,
-                            producerId,
-                            isScreenBroadcasting: socket.id !== participantId,
-                        };
-
-                        setConsumerScreens(screenSharing);
-                        setIsScreenSharing(true);
-                        console.log("setConsumerScreens Updated");
-                    } else {
-                        const combinedStream = new MediaStream();
-
-                        streams.forEach((stream) => {
-                            stream.getTracks().forEach((track) => {
-                                combinedStream.addTrack(track);
-                            });
-                        });
-
-                        setConsumers((prev) => {
-                            const newMap = new Map(prev);
-
-                            const existingMember = newMap.get(participantId);
-
-                            if (existingMember) {
-                                existingMember.streams = [
-                                    ...existingMember.streams,
-                                    combinedStream,
-                                ];
-                                existingMember.isMic = type === "audio";
-                                existingMember.isCamera = type === "video";
-                            }
-
-                            return newMap;
-                        });
-                        console.log("Consumer updated");
-                    }
-                };
-
-                peer.onnegotiationneeded = async () => {
-                    const offer = await peer.createOffer();
-                    await peer.setLocalDescription(offer);
-
-                    resolve({
-                        peer,
-                        sdp: peer.localDescription,
-                        participantId,
-                        producerId,
-                        userId,
-                    });
-                };
-
-                const existingPeerParticipant =
-                    peerConnections.current.get(participantId);
-
-                const newPeer = {
-                    isLocal: false,
-                    peer,
-                    producerId,
-                };
-
-                if (existingPeerParticipant) {
-                    existingPeerParticipant.push(newPeer);
-                } else {
-                    peerConnections.current.set(participantId, [newPeer]);
-                }
-
-                kind.split("/").forEach((k) => {
-                    console.log("Kind: ", k);
-                    peer.addTransceiver(k, { direction: "recvonly" });
-                });
-            });
-        });
-
-        const listInfoPeers = await Promise.all(createPeers);
-
-        const message = new Promise<string>((resolve) => {
-            socket.once("broadcasts", (message) => {
-                resolve(message);
-            });
-        });
-
-        const data = listInfoPeers.map((infoPeer) => {
-            return {
-                participantId: infoPeer.participantId,
-                producerId: infoPeer.producerId,
-                sdp: infoPeer.sdp,
-            };
-        });
-
-        sendMessage(
-            "fetch-existing-producers",
-            { channelId: roomId, data },
-            "POST"
-        );
-
-        const messageRes = await message;
-
-        const decryptMessage = JSON.parse(decrypt(messageRes)) as Array<{
-            consumerId: string;
-            kind: string;
-            participantId: string;
-            producerId: string;
-            sdp: RTCSessionDescription;
-        }>;
-
-        listInfoPeers.forEach((peerInfo) => {
-            const consumer = decryptMessage.find(
-                (p) => p.participantId === peerInfo.participantId
-            );
-
-            if (consumer) {
-                const desc = new RTCSessionDescription(consumer.sdp);
-                peerInfo.peer
-                    .setRemoteDescription(desc)
-                    .catch((e: unknown) => console.log(e));
-
-                consumer.kind.split("/").forEach((k) => {
-                    peerInfo.peer.addTransceiver(k, { direction: "recvonly" });
-                });
-            } else {
-                console.error("Peer not found");
-            }
-        });
-    };
-
-    const handelCreateConsumerForProducer = ({
-        participantId,
-        userId,
-        type,
-        kind,
-        producerId,
-    }: {
-        participantId: string;
-        userId: string;
-        type: string;
-        kind: string;
-        producerId: string;
-    }) => {
-        return new Promise<void>((resolve) => {
-            const peer = new RTCPeerConnection({
-                iceServers: SERVER_STUNS.current,
-                iceTransportPolicy: "all",
-                iceCandidatePoolSize: 10,
-                bundlePolicy: "max-bundle",
-            });
-
-            peer.oniceconnectionstatechange = () => {
-                console.log("ICE Connection State:", peer.iceConnectionState);
-
-                if (peer.iceConnectionState === "disconnected") {
-                    setTimeout(async () => {
-                        if (peer.iceConnectionState === "disconnected") {
-                            try {
-                                const offer = await peer.createOffer({
-                                    iceRestart: true,
-                                });
-                                await peer.setLocalDescription(offer);
-
-                                sendMessage(
-                                    "create-consumer-for-producer",
-                                    {
-                                        channelId: roomId,
-                                        sdp: peer.localDescription,
-                                        participantId,
-                                        kind: type,
-                                        producerId,
-                                    },
-                                    "POST"
-                                );
-                            } catch (err) {
-                                console.error("ICE restart failed:", err);
-                                peer.close();
-                                console.log(
-                                    "Peer consumer disconnected after retry"
-                                );
-                            }
-                        }
-                    }, 3000);
-                }
-
-                if (peer.iceConnectionState === "failed") {
-                    peer.close();
-                    console.log("Peer consumer disconnected due to failure");
-                }
-            };
-
-            peer.onicecandidate = (event) => {
-                if (event.candidate) {
-                    console.log("ICE candidate:", {
-                        type: event.candidate.type,
-                        protocol: event.candidate.protocol,
-                        address: event.candidate.address,
-                        port: event.candidate.port,
-                        foundation: event.candidate.foundation,
-                    });
                 } else {
                     console.log("ICE gathering completed");
+                }
+            };
+
+            peer.onconnectionstatechange = () => {
+                console.log(
+                    `Connection state changed: ${peer.connectionState}`
+                );
+                if (
+                    peer.connectionState === "failed" ||
+                    peer.connectionState === "disconnected"
+                ) {
+                    handleConnectionFailure(peer);
+                }
+            };
+
+            peer.oniceconnectionstatechange = () => {
+                if (peer.iceConnectionState === "failed") {
+                    peer.restartIce();
                 }
             };
 
@@ -412,8 +254,8 @@ const VideoCall = ({
                     };
 
                     setConsumerScreens(screenSharing);
-
-                    resolve();
+                    setIsScreenSharing(true);
+                    console.log("setConsumerScreens Updated");
                 } else {
                     const combinedStream = new MediaStream();
 
@@ -440,46 +282,234 @@ const VideoCall = ({
                         return newMap;
                     });
                     console.log("Consumer updated");
-                    resolve();
                 }
             };
-
-            peer.onnegotiationneeded = () =>
-                handleNegotiationNeededEvent(
-                    peer,
-                    kind,
-                    participantId,
-                    producerId
-                );
 
             kind.split("/").forEach((k) => {
                 console.log("Kind: ", k);
                 peer.addTransceiver(k, { direction: "recvonly" });
             });
 
-            const isExistingPeerConnection =
+            const existingPeerParticipant =
                 peerConnections.current.get(participantId);
 
             const newPeer = {
-                producerId,
-                peer,
                 isLocal: false,
+                peer,
+                producerId,
             };
 
-            if (isExistingPeerConnection) {
-                isExistingPeerConnection.push(newPeer);
+            if (existingPeerParticipant) {
+                existingPeerParticipant.push(newPeer);
             } else {
                 peerConnections.current.set(participantId, [newPeer]);
             }
+
+            const offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+
+            return {
+                peer,
+                sdp: peer.localDescription,
+                participantId,
+                producerId,
+                userId,
+                consumerId,
+                iceMessageQueue,
+            };
         });
+
+        const listInfoPeers = await Promise.all(createPeers);
+
+        const message = new Promise<string>((resolve) => {
+            socket.once("broadcasts", (message) => {
+                resolve(message);
+            });
+        });
+
+        const data = listInfoPeers.map((infoPeer) => {
+            return {
+                participantId: infoPeer.participantId,
+                producerId: infoPeer.producerId,
+                sdp: infoPeer.sdp,
+                consumerId: infoPeer.consumerId,
+            };
+        });
+
+        sendMessage(
+            "fetch-existing-producers",
+            { channelId: roomId, data },
+            "POST"
+        );
+
+        const messageRes = await message;
+
+        const decryptMessage = JSON.parse(decrypt(messageRes)) as Array<{
+            consumerId: string;
+            kind: string;
+            participantId: string;
+            producerId: string;
+            sdp: RTCSessionDescription;
+        }>;
+
+        for (const peerInfo of listInfoPeers) {
+            const consumer = decryptMessage.find(
+                (p) => p.consumerId === peerInfo.consumerId
+            );
+
+            if (consumer) {
+                const desc = new RTCSessionDescription(consumer.sdp);
+                await peerInfo.peer.setRemoteDescription(desc);
+                processIceQueue(peerInfo.consumerId, peerInfo.peer);
+                if (peerInfo.iceMessageQueue.length > 0) {
+                    sendMessage(
+                        "ice-candidate-consumer",
+                        {
+                            roomId,
+                            candidate: peerInfo.iceMessageQueue,
+                            consumerId: peerInfo.consumerId,
+                        },
+                        "POST"
+                    );
+                }
+            } else {
+                console.error("Peer not found");
+            }
+        }
     };
 
-    const handleNegotiationNeededEvent = async (
-        peer: RTCPeerConnection,
-        type: string,
-        participantId: string,
-        producerId: string
-    ) => {
+    const handelCreateConsumerForProducer = async ({
+        participantId,
+        userId,
+        type,
+        kind,
+        producerId,
+    }: {
+        participantId: string;
+        userId: string;
+        type: string;
+        kind: string;
+        producerId: string;
+    }) => {
+        const peer = new RTCPeerConnection(PEER_CONFIG);
+
+        const isExistingPeerConnection =
+            peerConnections.current.get(participantId);
+
+        const newPeer = {
+            producerId,
+            peer,
+            isLocal: false,
+        };
+
+        if (isExistingPeerConnection) {
+            isExistingPeerConnection.push(newPeer);
+        } else {
+            peerConnections.current.set(participantId, [newPeer]);
+        }
+
+        const consumerId = genuid();
+
+        const iceMessageQueue: RTCIceCandidate[] = [];
+
+        peer.onicecandidate = (event) => {
+            if (event.candidate) {
+                if (peer.remoteDescription) {
+                    console.log("ICE candidate:", {
+                        type: event.candidate.type,
+                        protocol: event.candidate.protocol,
+                        address: event.candidate.address,
+                        port: event.candidate.port,
+                        foundation: event.candidate.foundation,
+                    });
+                    sendMessage(
+                        "ice-candidate-consumer",
+                        {
+                            roomId,
+                            candidate: event.candidate,
+                            consumerId,
+                        },
+                        "POST"
+                    );
+                } else {
+                    iceMessageQueue.push(event.candidate);
+                }
+            } else {
+                console.log("ICE gathering completed");
+            }
+        };
+
+        peer.onconnectionstatechange = () => {
+            console.log(`Connection state changed: ${peer.connectionState}`);
+            if (
+                peer.connectionState === "failed" ||
+                peer.connectionState === "disconnected"
+            ) {
+                handleConnectionFailure(peer);
+            }
+        };
+
+        peer.oniceconnectionstatechange = () => {
+            if (peer.iceConnectionState === "failed") {
+                peer.restartIce();
+            }
+        };
+
+        peer.ontrack = (e: RTCTrackEvent) => {
+            const streams = e.streams;
+
+            if (type === "screen") {
+                const combinedStream = new MediaStream();
+
+                streams.forEach((stream) => {
+                    stream.getTracks().forEach((track) => {
+                        combinedStream.addTrack(track);
+                    });
+                });
+
+                const screenSharing = {
+                    id: userId,
+                    isLocal: currentProfile.userId === userId,
+                    participantId,
+                    stream: combinedStream,
+                    producerId,
+                    isScreenBroadcasting: socket.id !== participantId,
+                };
+
+                setConsumerScreens(screenSharing);
+            } else {
+                const combinedStream = new MediaStream();
+
+                streams.forEach((stream) => {
+                    stream.getTracks().forEach((track) => {
+                        combinedStream.addTrack(track);
+                    });
+                });
+
+                setConsumers((prev) => {
+                    const newMap = new Map(prev);
+
+                    const existingMember = newMap.get(participantId);
+
+                    if (existingMember) {
+                        existingMember.streams = [
+                            ...existingMember.streams,
+                            combinedStream,
+                        ];
+                        existingMember.isMic = type === "audio";
+                        existingMember.isCamera = type === "video";
+                    }
+
+                    return newMap;
+                });
+                console.log("Consumer updated");
+            }
+        };
+
+        kind.split("/").forEach((k) => {
+            peer.addTransceiver(k, { direction: "recvonly" });
+        });
+
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
 
@@ -497,20 +527,37 @@ const VideoCall = ({
                 participantId,
                 kind: type,
                 producerId,
+                consumerId,
             },
             "POST"
         );
 
         const messageEncrypted = await message;
-        const { sdp, kind } = JSON.parse(decrypt(messageEncrypted)) as {
+        const { sdp, kind: kindRecv } = JSON.parse(
+            decrypt(messageEncrypted)
+        ) as {
             sdp: any;
             kind: string;
+            consumerId: string;
+            producerId: string;
+            participantId: string;
         };
 
         const desc = new RTCSessionDescription(sdp);
-        peer.setRemoteDescription(desc).catch((e) =>
-            console.error(`SetRemoteDescription Error: ${e}`)
-        );
+        await peer.setRemoteDescription(desc);
+
+        processIceQueue(consumerId, peer);
+        if (iceMessageQueue.length > 0) {
+            sendMessage(
+                "ice-candidate-consumer",
+                {
+                    roomId,
+                    candidate: iceMessageQueue,
+                    consumerId,
+                },
+                "POST"
+            );
+        }
     };
 
     const handleNewMember = (message: string) => {
@@ -578,119 +625,157 @@ const VideoCall = ({
         peerConnections.current.set(participantId, filterPeer);
     };
 
-    const createPeer = (stream: MediaStream, type: string) => {
-        const peer = new RTCPeerConnection({
-            iceServers: SERVER_STUNS.current,
-        });
+    const createPeer = async (stream: MediaStream, type: string) => {
+        const peer = new RTCPeerConnection(PEER_CONFIG);
+        const producerId = genuid();
 
         stream.getTracks().forEach((track) => {
             peer.addTrack(track, stream);
         });
 
+        const iceMessageQueue: RTCIceCandidate[] = [];
+
         peer.onicecandidate = (event) => {
             console.log("ICE Connection State:", peer.iceConnectionState);
             if (event.candidate) {
-                console.log("ICE candidate:", {
-                    type: event.candidate.type,
-                    protocol: event.candidate.protocol,
-                    address: event.candidate.address,
-                    port: event.candidate.port,
-                    foundation: event.candidate.foundation,
-                });
+                if (peer.remoteDescription) {
+                    console.log("ICE candidate:", {
+                        type: event.candidate.type,
+                        protocol: event.candidate.protocol,
+                        address: event.candidate.address,
+                        port: event.candidate.port,
+                        foundation: event.candidate.foundation,
+                    });
+                    console.log("Data Before send - RoomId: ", roomId);
+                    console.log("Data Before send - producerId: ", producerId);
+                    sendMessage(
+                        "ice-candidate-producer",
+                        {
+                            roomId,
+                            candidate: event.candidate,
+                            producerId,
+                        },
+                        "POST"
+                    );
+                } else {
+                    iceMessageQueue.push(event.candidate);
+                }
             } else {
                 console.log("ICE gathering completed");
             }
         };
 
-        return new Promise<void>((resolve) => {
-            peer.onnegotiationneeded = async () => {
-                const offer = await peer.createOffer();
-                await peer.setLocalDescription(offer);
+        peer.onconnectionstatechange = () => {
+            console.log(`Connection state changed: ${peer.connectionState}`);
+            if (peer.connectionState === "failed") {
+                handleConnectionFailure(peer);
+            }
+        };
 
-                const message = new Promise<string>((resolve) => {
-                    socket.once("created-producer", (data: string) => {
-                        resolve(data);
-                    });
-                });
+        peer.oniceconnectionstatechange = () => {
+            if (peer.iceConnectionState === "failed") {
+                peer.restartIce();
+            }
+        };
 
-                sendMessage(
-                    "create-producer",
-                    {
-                        channelId: roomId,
-                        sdp: peer.localDescription,
-                        type,
-                    },
-                    "POST"
-                );
+        const isExistingPeerConnection = peerConnections.current.get(
+            socket.id as string
+        );
 
-                const messageEncrypted = await message;
-                const { sdp, kind, participantId, userId, producerId } =
-                    JSON.parse(decrypt(messageEncrypted));
+        const newPeer = {
+            producerId,
+            peer,
+            isLocal: true,
+        };
 
-                const desc = new RTCSessionDescription(sdp);
-                peer.setRemoteDescription(desc).catch((e) =>
-                    console.error(`SetRemoteDescription Error: ${e}`)
-                );
+        if (isExistingPeerConnection) {
+            isExistingPeerConnection.push(newPeer);
+        } else {
+            peerConnections.current.set(socket.id as string, [newPeer]);
+        }
 
-                const isExistingPeerConnection =
-                    peerConnections.current.get(participantId);
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
 
-                const newPeer = {
-                    producerId,
-                    peer,
-                    isLocal: true,
-                };
-
-                if (isExistingPeerConnection) {
-                    isExistingPeerConnection.push(newPeer);
-                } else {
-                    peerConnections.current.set(participantId, [newPeer]);
-                }
-
-                const videoTrack = stream.getVideoTracks();
-                const settings = videoTrack[0]?.getSettings() as any;
-                if (
-                    settings?.cursor === "motion" ||
-                    settings?.cursor === "always"
-                ) {
-                    const screenSharing = {
-                        id: userId,
-                        participantId: socket.id as string,
-                        isLocal: userId === currentProfile.userId,
-                        stream,
-                        producerId,
-                        isScreenBroadcasting: socket.id !== participantId,
-                    };
-
-                    setConsumerScreens(screenSharing);
-                } else {
-                    setConsumers((prev) => {
-                        const newMap = new Map(prev);
-
-                        const existingConsumer = newMap.get(participantId);
-                        if (existingConsumer) {
-                            existingConsumer.streams = [
-                                ...existingConsumer.streams,
-                                stream,
-                            ];
-                            existingConsumer.isMic = type === "audio";
-                            existingConsumer.isCamera = type === "video";
-                            existingConsumer.isLocal = true;
-                        } else {
-                            throw new Error("Consumer not found");
-                        }
-
-                        console.log("Consumers updated");
-
-                        return newMap;
-                    });
-                    resolve();
-                }
-            };
+        const message = new Promise<string>((resolve) => {
+            socket.once("created-producer", (data: string) => {
+                resolve(data);
+            });
         });
+
+        console.log("Bottom");
+        console.log("Data Before send - RoomId: ", roomId);
+        console.log("Data Before send - producerId: ", producerId);
+        sendMessage(
+            "create-producer",
+            {
+                channelId: roomId,
+                sdp: peer.localDescription,
+                type,
+                producerId,
+            },
+            "POST"
+        );
+
+        const messageEncrypted = await message;
+        const { sdp, kind, participantId, userId } = JSON.parse(
+            decrypt(messageEncrypted)
+        );
+
+        const desc = new RTCSessionDescription(sdp);
+        await peer.setRemoteDescription(desc);
+
+        processIceQueue(producerId, peer);
+        if (iceMessageQueue.length > 0) {
+            sendMessage(
+                "ice-candidate-producer",
+                {
+                    roomId,
+                    candidate: iceMessageQueue,
+                    producerId,
+                },
+                "POST"
+            );
+        }
+
+        const videoTrack = stream.getVideoTracks();
+        const settings = videoTrack[0]?.getSettings() as any;
+        if (settings?.cursor === "motion" || settings?.cursor === "always") {
+            const screenSharing = {
+                id: userId,
+                participantId: socket.id as string,
+                isLocal: userId === currentProfile.userId,
+                stream,
+                producerId,
+                isScreenBroadcasting: socket.id !== participantId,
+            };
+
+            setConsumerScreens(screenSharing);
+        } else {
+            setConsumers((prev) => {
+                const newMap = new Map(prev);
+
+                const existingConsumer = newMap.get(participantId);
+                if (existingConsumer) {
+                    existingConsumer.streams = [
+                        ...existingConsumer.streams,
+                        stream,
+                    ];
+                    existingConsumer.isMic = type === "audio";
+                    existingConsumer.isCamera = type === "video";
+                    existingConsumer.isLocal = true;
+                } else {
+                    throw new Error("Consumer not found");
+                }
+
+                console.log("Consumers updated");
+
+                return newMap;
+            });
+        }
     };
 
-    const toggleAudio = async () => {
+    const toggleAudio = useCallback(async () => {
         if (audioStreamRef.current) {
             audioStreamRef.current.getAudioTracks().forEach((track) => {
                 track.enabled = !track.enabled;
@@ -726,6 +811,10 @@ const VideoCall = ({
                 audio: true,
                 video: false,
             });
+            stream.addEventListener("inactive", () => {
+                audioStreamRef.current = null;
+                console.log("Stream is inactive");
+            });
             audioStreamRef.current = stream;
             await createPeer(stream, "audio");
             setIsAudioEnabling(true);
@@ -740,9 +829,9 @@ const VideoCall = ({
                 "POST"
             );
         }
-    };
+    }, [audioStreamRef.current, createPeer, roomId, socket.id]);
 
-    const toggleVideo = async () => {
+    const toggleVideo = useCallback(async () => {
         if (videoStreamRef.current) {
             videoStreamRef.current.getVideoTracks().forEach((track) => {
                 track.enabled = !track.enabled;
@@ -778,6 +867,10 @@ const VideoCall = ({
                 audio: false,
             });
             await createPeer(stream, "video");
+            stream.addEventListener("inactive", () => {
+                videoStreamRef.current = null;
+                console.log("Stream is inactive");
+            });
             videoStreamRef.current = stream;
             setIsVideoEnabling(true);
             sendMessage(
@@ -790,9 +883,9 @@ const VideoCall = ({
                 "POST"
             );
         }
-    };
+    }, [roomId, videoStreamRef.current, createPeer]);
 
-    const onLeaveRoom = () => {
+    const onLeaveRoom = useCallback(() => {
         const server = servers[0];
 
         if (
@@ -827,7 +920,7 @@ const VideoCall = ({
         }
 
         return router.push("/");
-    };
+    }, [servers]);
 
     const handleTurnOffScreenSharing = () => {
         const infoPeer = peerConnections.current.get(socket.id as string);
@@ -838,7 +931,7 @@ const VideoCall = ({
         const existingPeer = infoPeer?.find((peer) => peer.isLocal);
 
         if (existingPeer && infoPeer) {
-            existingPeer.peer.close();
+            closePeer(existingPeer.peer);
             sendMessage(
                 "peer-disconnected",
                 {
@@ -861,36 +954,36 @@ const VideoCall = ({
         setIsScreenSharing(false);
     };
 
-    const toggleScreenSharing = async ({
-        isAudio,
-        isScreen,
-    }: {
-        isAudio: boolean;
-        isScreen: boolean;
-    }) => {
-        if (isScreenSharing) {
-            handleTurnOffScreenSharing();
-        } else {
-            const stream = await navigator.mediaDevices.getDisplayMedia({
-                video: isScreen,
-                audio: isAudio,
-            });
+    const toggleScreenSharing = useCallback(
+        async ({
+            isAudio,
+            isScreen,
+        }: {
+            isAudio: boolean;
+            isScreen: boolean;
+        }) => {
+            if (isScreenSharing) {
+                handleTurnOffScreenSharing();
+            } else {
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: isScreen,
+                    audio: isAudio,
+                });
 
-            setIsScreenSharing(true);
+                setIsScreenSharing(true);
 
-            stream.getTracks().forEach((track) => {
-                track.onended = () => {
+                stream.addEventListener("inactive", () => {
                     handleTurnOffScreenSharing();
                     shareStreamRef.current = null;
+                    console.log("Stream is inactive");
+                });
 
-                    console.log("Ended");
-                };
-            });
-
-            shareStreamRef.current = stream;
-            await createPeer(stream, "screen");
-        }
-    };
+                shareStreamRef.current = stream;
+                await createPeer(stream, "screen");
+            }
+        },
+        [createPeer, isScreenSharing, handleTurnOffScreenSharing]
+    );
 
     const handleNewProducer = async (messgae: string) => {
         const { kind, participantId, userId, type, producerId } = JSON.parse(
@@ -1030,11 +1123,204 @@ const VideoCall = ({
         }
     };
 
-    const stopLocalStreamScreen = () => {
-        if (shareStreamRef.current) {
-            shareStreamRef.current.getTracks().forEach((track) => track.stop());
+    const processIceQueue = (key: string, peer: RTCPeerConnection) => {
+        const currentIceQueue = iceQueue.current.get(key);
+
+        if (!currentIceQueue) return;
+
+        console.log("Process IceQueue");
+
+        for (const icecandidate of currentIceQueue) {
+            const newIceCandidate = new RTCIceCandidate(icecandidate);
+            peer.addIceCandidate(newIceCandidate);
         }
+
+        console.log("Updated iceCandidate");
     };
+
+    const handleIcecandidateProducer = (message: string) => {
+        const decryptMessage = JSON.parse(
+            decrypt(message)
+        ) as ResICECandidateProducer;
+        const peers = peerConnections.current.get(decryptMessage.target);
+
+        if (!peers) {
+            console.log("Peers not found in handleIcecandidateProducer");
+            return;
+        }
+
+        const peerInfo = peers.find(
+            (p) => p.producerId === decryptMessage.producerId
+        );
+
+        if (!peerInfo) {
+            console.log("peerInfo not found in handleIcecandidateProducer");
+            return;
+        }
+
+        if (!peerInfo.peer.remoteDescription) {
+            const existingIceQueue = iceQueue.current.get(
+                decryptMessage.producerId
+            );
+            if (existingIceQueue) {
+                existingIceQueue.push(decryptMessage.candidate);
+            } else {
+                iceQueue.current.set(decryptMessage.producerId, [
+                    decryptMessage.candidate,
+                ]);
+            }
+            return;
+        }
+
+        const newIceCandidate = new RTCIceCandidate(decryptMessage.candidate);
+        peerInfo.peer.addIceCandidate(newIceCandidate);
+        console.log(`Updated Peer Producer: ${decryptMessage.producerId}`);
+    };
+
+    const handleIcecandidateConsumer = (message: string) => {
+        const decryptMessage = JSON.parse(
+            decrypt(message)
+        ) as ResICECandidateConsumer;
+        const peers = peerConnections.current.get(decryptMessage.target);
+
+        if (!peers) return;
+
+        const peerInfo = peers.find(
+            (p) => p.producerId === decryptMessage.producerId
+        );
+
+        if (!peerInfo) return;
+
+        if (!peerInfo.peer.remoteDescription) {
+            const existingIceQueue = iceQueue.current.get(
+                decryptMessage.consumerId
+            );
+            if (existingIceQueue) {
+                existingIceQueue.push(decryptMessage.candidate);
+            } else {
+                iceQueue.current.set(decryptMessage.consumerId, [
+                    decryptMessage.candidate,
+                ]);
+            }
+            return;
+        }
+        const newIceCandidate = new RTCIceCandidate(decryptMessage.candidate);
+        peerInfo.peer.addIceCandidate(newIceCandidate);
+        console.log(`Updated Peer Consumer: ${decryptMessage.consumerId}`);
+    };
+
+    const handleRestartProducer = async (message: string) => {
+        console.log("Start restarting producer...");
+        const { producerId, type } = JSON.parse(decrypt(message)) as {
+            producerId: string;
+            type: string;
+        };
+
+        const listPeer = peerConnections.current.get(socket.id as string);
+
+        if (!listPeer) throw new Error(`Could not connect to ${socket.id}`);
+
+        const producer = listPeer.find(
+            (peerInfo) => peerInfo.producerId === producerId
+        );
+
+        if (!producer)
+            throw new Error(
+                `Could not connect to ${socket.id} with producer ${producerId}`
+            );
+        const offer = await producer.peer.createOffer({ iceRestart: true });
+        producer.peer.setLocalDescription(offer);
+
+        sendMessage(
+            "producer-restart-required",
+            {
+                channelId: roomId,
+                type,
+                sdp: producer.peer.localDescription,
+                producerId,
+            },
+            "POST"
+        );
+    };
+
+    const handleRestartConsumer = async (message: string) => {
+        console.log("Start restarting consumer...");
+        const { producerId, consumerId, senderId } = JSON.parse(
+            decrypt(message)
+        ) as {
+            producerId: string;
+            consumerId: string;
+            senderId: string;
+        };
+
+        const listPeer = peerConnections.current.get(senderId);
+
+        if (!listPeer) throw new Error(`Cannot connect to ${senderId}`);
+
+        const producer = listPeer.find(
+            (peerInfo) => peerInfo.producerId === producerId
+        );
+
+        if (!producer) throw new Error(`Cannot find producer ${producerId}`);
+
+        const offer = await producer.peer.createOffer({ iceRestart: true });
+        producer.peer.setLocalDescription(offer);
+
+        sendMessage(
+            "consumer-restart-required",
+            {
+                channelId: roomId,
+                producerId,
+                consumerId,
+                participantId: senderId,
+                sdp: producer.peer.localDescription,
+            },
+            "POST"
+        );
+    };
+
+    const closePeer = (peer: RTCPeerConnection) => {
+        peer.ontrack = null;
+        peer.onicecandidate = null;
+        peer.onconnectionstatechange = null;
+        peer.close();
+    };
+
+    useEffect(() => {
+        console.log("useEffect close all connections");
+        return () => {
+            peerConnections.current.forEach((peers) => {
+                peers.forEach(({ peer }) => {
+                    if (peer.connectionState !== "closed") {
+                        peer.getTransceivers().forEach((transceiver) =>
+                            transceiver.stop()
+                        );
+                        closePeer(peer);
+                    }
+                });
+            });
+            videoStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+            audioStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+        };
+    }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            peerConnections.current.forEach((peers) => {
+                peers.forEach(({ peer }) => {
+                    if (peer.iceConnectionState === "disconnected") {
+                        handleConnectionFailure(peer);
+                    }
+                });
+            });
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, []);
 
     const setupListeners = () => {
         addListener("joined-room", handleJoinedRoom);
@@ -1044,6 +1330,10 @@ const VideoCall = ({
         addListener("leave-room-disconnected", handlePeerDisconnectedLeaveRoom);
         addListener("producer-disconnected", handleProducerDisconnected);
         addListener("updated-status-change", handleUpdatedMediaStreamStatus);
+        addListener("ice-candidate-producer", handleIcecandidateProducer);
+        addListener("ice-candidate-consumer", handleIcecandidateConsumer);
+        addListener("producer-ice-restart-required", handleRestartProducer);
+        addListener("consumer-ice-restart-required", handleRestartConsumer);
 
         return () => {
             removeListener("new-producer", handleNewProducer);
@@ -1054,7 +1344,22 @@ const VideoCall = ({
                 "updated-status-change",
                 handleUpdatedMediaStreamStatus
             );
-            stopLocalStreamScreen();
+            removeListener(
+                "ice-candidate-producer",
+                handleIcecandidateProducer
+            );
+            removeListener(
+                "ice-candidate-consumer",
+                handleIcecandidateConsumer
+            );
+            removeListener(
+                "producer-ice-restart-required",
+                handleRestartProducer
+            );
+            removeListener(
+                "consumer-ice-restart-required",
+                handleRestartConsumer
+            );
             sendMessage("leave-room", { channelId: roomId }, "POST");
         };
     };
@@ -1070,13 +1375,13 @@ const VideoCall = ({
     }, []);
 
     return (
-        <div className={"flex-1 flex flex-col md:p-4"}>
+        <div className={"flex-1 flex flex-col md:p-4 overflow-hidden"}>
             <div
                 onTouchStart={onTouchScreen}
                 className={
                     isScreenSharing
                         ? "relative flex-1 flex flex-col md:grid md:grid-cols-[80%,20%] gap-x-2"
-                        : "w-full h-full flex items-center justify-evenly flex-1 flex-wraps"
+                        : "w-full h-full flex items-center justify-evenly flex-1 flex-wraps overflow-y-auto scrollbar-hide"
                 }
             >
                 {consumerScreens && (
@@ -1085,26 +1390,47 @@ const VideoCall = ({
 
                 <div
                     ref={containerVideoRef}
-                    className={`w-full h-full md:relative md:block ${
+                    className={`w-full h-full md:relative ${
                         isScreenSharing
-                            ? "absolute top-0 right-0 z-50 w-1/3 h-1/3 md:w-full md:block"
-                            : ""
+                            ? "absolute top-0 right-0 z-50 w-1/3 h-[24.25%] md:w-full md:block"
+                            : "md:flex md:flex-wrap justify-evenly gap-y-1"
                     }`}
                 >
-                    {[...consumers.values()].map((consumerInfo) => {
-                        return (
-                            <MediaStreamComponent
-                                key={consumerInfo.id}
-                                roomId={roomId}
-                                streams={consumerInfo.streams}
-                                profile={consumerInfo.profile}
-                                isLocal={consumerInfo.isLocal}
-                                isVideoEnabling={consumerInfo.isCamera}
-                                isAudioEnabling={consumerInfo.isMic}
-                                isScreenShare={isScreenSharing}
-                            />
-                        );
-                    })}
+                    {isScreenSharing
+                        ? [...consumers.values()]
+                              .slice(0, 4)
+                              .map((consumerInfo, index) => {
+                                  return (
+                                      <MediaStreamComponent
+                                          className={`z-[${index}]`}
+                                          key={consumerInfo.id}
+                                          roomId={roomId}
+                                          streams={consumerInfo.streams}
+                                          profile={consumerInfo.profile}
+                                          isLocal={consumerInfo.isLocal}
+                                          isVideoEnabling={
+                                              consumerInfo.isCamera
+                                          }
+                                          isAudioEnabling={consumerInfo.isMic}
+                                          isScreenShare={isScreenSharing}
+                                      />
+                                  );
+                              })
+                        : [...consumers.values()].map((consumerInfo, index) => {
+                              return (
+                                  <MediaStreamComponent
+                                      className={`z-[${index}]`}
+                                      key={consumerInfo.id}
+                                      roomId={roomId}
+                                      streams={consumerInfo.streams}
+                                      profile={consumerInfo.profile}
+                                      isLocal={consumerInfo.isLocal}
+                                      isVideoEnabling={consumerInfo.isCamera}
+                                      isAudioEnabling={consumerInfo.isMic}
+                                      isScreenShare={isScreenSharing}
+                                  />
+                              );
+                          })}
                 </div>
             </div>
 

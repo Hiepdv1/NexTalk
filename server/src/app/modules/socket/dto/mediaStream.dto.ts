@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsUUID } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsString, IsUUID } from 'class-validator';
 
 export class MediaStatuChangeDto {
   @IsNotEmpty()
@@ -12,4 +12,28 @@ export class MediaStatuChangeDto {
   @IsBoolean()
   @IsNotEmpty()
   isCamera: boolean;
+}
+
+export class IceCandidateProducerDto {
+  candidate: RTCIceCandidate | RTCIceCandidate[];
+
+  @IsNotEmpty()
+  @IsString()
+  roomId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  producerId: string;
+}
+
+export class IceCandidateConsumerDto {
+  candidate: RTCIceCandidate | RTCIceCandidate[];
+
+  @IsNotEmpty()
+  @IsString()
+  roomId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  consumerId: string;
 }

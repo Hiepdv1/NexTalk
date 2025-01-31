@@ -61,6 +61,7 @@ export class HttpExceptionsFilter extends BaseExceptionFilter {
           userId,
           path,
           operation: exception.meta?.modelName,
+          stack: exception.stack,
         },
       });
     }
@@ -72,6 +73,7 @@ export class HttpExceptionsFilter extends BaseExceptionFilter {
           tokenError: exception.message,
           userId,
           path,
+          stack: exception.stack,
         },
       });
     }
@@ -87,6 +89,7 @@ export class HttpExceptionsFilter extends BaseExceptionFilter {
           type: exception.type,
           userId,
           path,
+          stack: exception.stack,
         },
       }
     );

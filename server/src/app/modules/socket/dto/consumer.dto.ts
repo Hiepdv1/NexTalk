@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 import { IsValidSDP } from 'src/common/validators/IsValidSDPConstraint.validator';
 
 export class CreateConsumerForProducerDto {
@@ -21,4 +21,30 @@ export class CreateConsumerForProducerDto {
   @IsString()
   @IsNotEmpty()
   producerId: string;
+
+  @IsOptional()
+  @IsString()
+  consumerId: string;
+}
+
+export class ConsumerRestartDto {
+  @IsNotEmpty()
+  @IsUUID()
+  channelId: string;
+
+  @IsNotEmpty()
+  @IsValidSDP()
+  sdp: RTCSessionDescriptionInit;
+
+  @IsString()
+  @IsNotEmpty()
+  participantId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  producerId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  consumerId: string;
 }

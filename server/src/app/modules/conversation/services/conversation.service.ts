@@ -8,6 +8,14 @@ export class ConversationService {
 
   constructor(private readonly db: PostgresDatabaseProviderService) {}
 
+  public async getConversationByid(conversationId: string) {
+    return this.db.conversation.findUnique({
+      where: {
+        id: conversationId,
+      },
+    });
+  }
+
   public async getConversation(memberOneId: string, memberTwoId: string) {
     const conversation = await this.db.conversation.findFirst({
       where: {
@@ -40,45 +48,54 @@ export class ConversationService {
     memberTwoId: string,
     id?: string
   ) {
-    return await this.db.$transaction(async (prisma) => {
-      const existingConversation = await prisma.conversation.findFirst({
-        where: {
-          OR: [
-            {
-              memberOneId,
-              memberTwoId,
-            },
-            {
-              memberOneId: memberTwoId,
-              memberTwoId: memberOneId,
-            },
-          ],
+    const existingConversation = await this.db.conversation.findFirst({
+      where: {
+        OR: [
+          { memberOneId, memberTwoId },
+          { memberOneId: memberTwoId, memberTwoId: memberOneId },
+        ],
+      },
+      include: {
+        memberOne: {
+          include: {
+            profile: true,
+          },
         },
-        include: {
-          memberOne: true,
-          memberTwo: true,
+        memberTwo: {
+          include: {
+            profile: true,
+          },
         },
-      });
+        directMessages: {
+          take: 12,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+    });
 
-      if (existingConversation) {
-        return existingConversation;
-      }
+    if (existingConversation) return existingConversation;
 
-      return await this.db.conversation.create({
-        data: {
-          id,
-          memberOneId,
-          memberTwoId,
+    return this.db.conversation.create({
+      data: { id, memberOneId, memberTwoId },
+      include: {
+        memberOne: {
+          include: {
+            profile: true,
+          },
         },
-        include: {
-          memberOne: true,
-          memberTwo: true,
+        memberTwo: {
+          include: {
+            profile: true,
+          },
         },
-      });
+        directMessages: true,
+      },
     });
   }
 
-  public async getDirectMessageById({
+  public async getDirectMessageByConversationId({
     conversationId,
     skip,
     cursor,
@@ -109,15 +126,59 @@ export class ConversationService {
 
   public async createDirectMessage(data: Prisma.DirectMessageCreateManyInput) {
     return await this.db.directMessage.create({
-      data: {
-        content: data.content,
-        memberId: data.memberId,
-        conversationId: data.conversationId,
-      },
+      data,
       include: {
         member: {
           include: {
             profile: true,
+          },
+        },
+      },
+    });
+  }
+
+  public async getConversationByUserId(userId: string) {
+    return await this.db.conversation.findMany({
+      where: {
+        OR: [
+          {
+            memberOne: {
+              profile: {
+                userId,
+              },
+            },
+          },
+          {
+            memberTwo: {
+              profile: {
+                userId,
+              },
+            },
+          },
+        ],
+      },
+      include: {
+        memberOne: {
+          include: {
+            profile: true,
+          },
+        },
+        memberTwo: {
+          include: {
+            profile: true,
+          },
+        },
+        directMessages: {
+          include: {
+            member: {
+              include: {
+                profile: true,
+              },
+            },
+          },
+          take: 12,
+          orderBy: {
+            createdAt: 'desc',
           },
         },
       },

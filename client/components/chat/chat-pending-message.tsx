@@ -3,8 +3,8 @@ import { ActionTooltip } from "../action.tooltip";
 import UserAvatar from "../ui/user-avatar";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { Progress } from "@/components/ui/progress";
 import { memo } from "react";
+import ProgressBar from "../loadding/ProgressBar";
 
 interface IChatPendingMessageProps {
     imageUrl: string;
@@ -91,32 +91,30 @@ const ChatPendingMessage = ({
                         )}
 
                         {isVideo && (
-                            <div className="w-96 h-60 my-2 max-sm:w-full relative bg-slate-500">
-                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                                    <Loader2 className="w-16 h-16 animate-spin" />
-                                </div>
-                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-green-500">
-                                    <span className="text-white text-xs">
-                                        {progressUploaded}%
-                                    </span>
-                                </div>
+                            <div className="px-2 bg-slate-400 relative w-96 h-60 my-2 max-sm:w-full dark:bg-[rgba(0,0,0,.65)]">
+                                <ProgressBar
+                                    progress={progressUploaded ?? 0}
+                                    className="absolute top-1/2 left-0 -translate-y-1/2"
+                                />
                             </div>
                         )}
 
                         {isFile && (
                             <div className="relative flex items-center p-2 mt-2 rounded-md bg-background/10 ">
                                 <FileIcon className="w-10 h-10 fill-indigo-200 stroke-indigo-400" />
-                                <div
-                                    className="ml-2 text-sm text-indigo-500 dark:text-indigo-400 hover:underline"
-                                    rel="noopener noreferrer"
-                                >
-                                    {message.split("/").pop()}
-                                </div>
-                                <div className="mt-2">
-                                    <Progress
-                                        value={progressUploaded}
-                                        className="w-full bg-zinc-500 dark:bg-zinc-300"
-                                    />
+                                <div className="ml-2 flex flex-col w-full">
+                                    <div
+                                        className="text-sm text-indigo-500 dark:text-indigo-400 hover:underline"
+                                        rel="noopener noreferrer"
+                                    >
+                                        {message.split("/").pop()}
+                                    </div>
+                                    <div className="mt-2 w-full max-w-96">
+                                        <ProgressBar
+                                            progress={progressUploaded ?? 0}
+                                            className="w-full bg-zinc-500 dark:bg-zinc-300 text-black"
+                                        />
+                                    </div>
                                 </div>
                             </div>
                         )}

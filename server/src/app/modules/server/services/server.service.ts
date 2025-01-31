@@ -52,17 +52,68 @@ export class ServerService {
         },
       },
       include: {
-        channels: true,
+        channels: {
+          include: {
+            messages: {
+              include: {
+                member: {
+                  include: {
+                    profile: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+              take: 12,
+            },
+            userChannelRead: true,
+          },
+        },
         members: {
           include: {
             profile: true,
             conversationsInitiated: {
+              include: {
+                directMessages: {
+                  include: {
+                    member: {
+                      include: {
+                        profile: true,
+                      },
+                    },
+                  },
+                  take: 12,
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
+              },
               take: 12,
             },
             conversationsReceived: {
+              include: {
+                directMessages: {
+                  include: {
+                    member: {
+                      include: {
+                        profile: true,
+                      },
+                    },
+                  },
+                  take: 12,
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
+              },
               take: 12,
             },
           },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 12,
         },
       },
     });
@@ -131,12 +182,12 @@ export class ServerService {
                 },
                 take: 12,
               },
+              userChannelRead: true,
             },
           },
           members: {
             include: {
               profile: true,
-              directMessages: true,
               conversationsInitiated: {
                 include: {
                   directMessages: {

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ChannelType, MemberRole, Prisma } from '@prisma/client';
+import { ChannelType, MemberRole, MessageType, Prisma } from '@prisma/client';
 import { PostgresDatabaseProviderService } from 'src/providers/database/postgres/provider.service';
 
 @Injectable()
@@ -65,6 +65,118 @@ export class ChannelService {
             },
           },
         },
+      },
+    });
+  }
+
+  public async updateMessage(data: {
+    channelId: string;
+    messageId: string;
+    content: string;
+    profileId: string;
+    serverId: string;
+  }) {
+    return await this.db.message.update({
+      where: {
+        id: data.messageId,
+        channel: {
+          id: data.channelId,
+          serverId: data.serverId,
+        },
+        member: {
+          profileId: data.profileId,
+        },
+      },
+      data: {
+        content: data.content,
+        updatedAt: new Date(),
+      },
+    });
+  }
+
+  public async updateMessageFile(data: {
+    channelId: string;
+    messageId: string;
+    fileId: string;
+    fileUrl: string;
+    content: string;
+    profileId: string;
+    serverId: string;
+    type: MessageType;
+  }) {
+    return await this.db.message.update({
+      where: {
+        id: data.messageId,
+        channel: {
+          id: data.channelId,
+          serverId: data.serverId,
+        },
+        member: {
+          profileId: data.profileId,
+        },
+      },
+      data: {
+        fileId: data.fileId,
+        fileUrl: data.fileUrl,
+        posterId: null,
+        posterUrl: null,
+        content: data.content,
+        updatedAt: new Date(),
+        type: data.type,
+      },
+    });
+  }
+
+  public async ExistingMessage(data: {
+    channelId: string;
+    serverId: string;
+    profileId: string;
+    messageId: string;
+  }) {
+    return this.db.message.findUnique({
+      where: {
+        id: data.messageId,
+        channel: {
+          id: data.channelId,
+          serverId: data.serverId,
+        },
+        member: {
+          profileId: data.profileId,
+        },
+      },
+    });
+  }
+
+  public async UpdateMessageVideo(data: {
+    channelId: string;
+    serverId: string;
+    profileId: string;
+    messageId: string;
+    fileId: string;
+    fileUrl: string;
+    posterId: string;
+    posterUrl: string;
+    content: string;
+  }) {
+    return await this.db.message.update({
+      where: {
+        id: data.messageId,
+        channel: {
+          id: data.channelId,
+          serverId: data.serverId,
+        },
+        member: {
+          profileId: data.profileId,
+        },
+      },
+      data: {
+        content: data.content,
+        fileId: data.fileId,
+        fileUrl: data.fileUrl,
+        posterId: data.posterId,
+        posterUrl: data.posterUrl,
+        type: MessageType.VIDEO,
+        updatedAt: new Date(),
       },
     });
   }

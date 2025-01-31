@@ -72,7 +72,7 @@ export class ServerController {
 
     const uploadToCloud = (await this.cloudinaryService.UploadFile(
       file,
-      'Discord/ServerImages',
+      'NexTalk/ServerImages',
       file.mimetype
     )) as {
       _id: string;
@@ -88,19 +88,19 @@ export class ServerController {
       profileId: existingUser.id,
     });
 
-    await this.serverCacheService.setAndOverrideServerCache(server.id, server);
+    await this.serverCacheService.setAndOverrideServerCache(server.id, {
+      ...server,
+      channels: server.channels.map(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        ({ messages, userChannelRead, ...rest }) => rest
+      ),
+      members: server.members.map(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        ({ conversationsInitiated, conversationsReceived, ...rest }) => rest
+      ),
+    });
 
-    const encryptData = AppHelperService.encrypt(
-      JSON.stringify(server),
-      this.SECRET_KEY
-    );
-
-    this.mediaGateway.server.emit('server:created:update', encryptData);
-
-    return {
-      statusCode: 200,
-      message: 'Created server successfully',
-    };
+    return server;
   }
 
   @Patch('/:serverId')
@@ -132,7 +132,7 @@ export class ServerController {
     const [uploadToCloud] = await Promise.all([
       this.cloudinaryService.UploadFile(
         file,
-        'Discord/ServerImages',
+        'NexTalk/ServerImages',
         file.mimetype
       ),
       this.cloudinaryService.Destroy(server.cloudId, 'image'),
@@ -194,7 +194,7 @@ export class ServerController {
 
       const channels = server.channels.map((channel) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { messages, ...rest } = channel;
+        const { messages, userChannelRead, ...rest } = channel;
         return rest;
       });
 
@@ -204,13 +204,24 @@ export class ServerController {
         channels,
       };
 
-      await this.serverCacheService.setAndOverrideServerCache(
+      return await this.serverCacheService.setAndOverrideServerCache(
         server.id,
         serverData
       );
     });
 
     await Promise.all(caches);
+
+    const USERS_ONLINE = [...this.socketService.USERS_ONLINE.values()];
+    for (const server of data.servers) {
+      for (const member of server.members) {
+        if (USERS_ONLINE.includes(member.profile.userId)) {
+          (member as any).isOnline = true;
+        } else {
+          (member as any).isOnline = false;
+        }
+      }
+    }
 
     const encryptData = AppHelperService.encrypt(
       JSON.stringify(data),
@@ -592,10 +603,11 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.mediaGateway.server.emit('server:deleted:update', encryptData);
+    this.mediaGateway.server.emit('SERVER:DELETED:GLOBAL', encryptData);
 
     return {
       statusCode: 200,
+      serverDeletedId: deletedServer.id,
       message: 'Server deleted successfully',
     };
   }

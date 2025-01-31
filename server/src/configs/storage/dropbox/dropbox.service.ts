@@ -35,7 +35,7 @@ export class DropboxService {
       const uniqueId = uuidv4();
       const dropboxPath = options.path
         ? `${options.path}/${uniqueId}:::${fileName}`
-        : `/Discord-app/${uniqueId}:::${fileName}`;
+        : `/NexTalk/${uniqueId}:::${fileName}`;
 
       const fileUploaded = await this.dbx.filesUpload({
         path: dropboxPath,

@@ -28,7 +28,6 @@
         "**/*.ts",
         "**/*.tsx",
         ".next/types/**/*.ts",
-        "components/modals/Leave-server-modal.tsx"
     ],
     "exclude": ["node_modules"]
 }

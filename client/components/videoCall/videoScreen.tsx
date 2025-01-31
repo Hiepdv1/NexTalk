@@ -37,7 +37,7 @@ const VideoScreenComponent = ({
     }, [consumerScreens, videoRef.current, audioRef.current]);
 
     return (
-        <div className={`bg-black md:mb-0 h-full`}>
+        <div className={`bg-black md:mb-0 h-full relative`}>
             <div className="h-full w-full">
                 <video
                     ref={videoRef}
@@ -49,6 +49,12 @@ const VideoScreenComponent = ({
             </div>
             <div className="hidden">
                 <audio autoPlay playsInline ref={audioRef} />
+            </div>
+            <div className="absolute left-3 top-3 flex items-center gap-2 bg-black/50 px-3 py-1 rounded-full">
+                <span className="animate-pulse w-2 h-2 bg-red-600 rounded-full"></span>
+                <span className="text-white font-semibold text-xs tracking-wider animate-pulse px-1 py-[2px] bg-red-600 rounded">
+                    LIVE
+                </span>
             </div>
         </div>
     );

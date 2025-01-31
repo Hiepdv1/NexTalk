@@ -40,12 +40,14 @@ import {
 } from "../ui/select";
 import qs from "query-string";
 import { PatchRequest } from "@/API/api";
+import { useData } from "../providers/data-provider";
 
 interface IEditChannelModalProps {}
 
 const EditChannelModal = (props: IEditChannelModalProps) => {
     const params = useParams();
 
+    const { handleUpdateChannel } = useData();
     const { isOpen, onClose, type, data } = useModal();
     const { channel } = data;
 
@@ -58,11 +60,9 @@ const EditChannelModal = (props: IEditChannelModalProps) => {
     });
 
     useEffect(() => {
-        if (channel?.type) {
-            form.setValue("type", channel.type);
-            form.setValue("name", channel.name);
-        }
-    }, [channel?.type]);
+        form.setValue("type", channel?.type || channelType.TEXT);
+        form.setValue("name", channel?.name || "");
+    }, [channel]);
 
     const isLoading = form.formState.isSubmitting;
     const router = useRouter();
@@ -79,12 +79,10 @@ const EditChannelModal = (props: IEditChannelModalProps) => {
             },
         });
 
-        const res = await PatchRequest(url, values);
+        await PatchRequest(url, values);
 
-        if (res && res.data) {
-            form.reset();
-            onClose("EditChannel");
-        }
+        form.reset();
+        onClose("EditChannel");
     };
 
     const handleModalClose = () => {

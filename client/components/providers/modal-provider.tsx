@@ -14,8 +14,18 @@ import EditChannelModal from "../modals/Edit-Channel-modal";
 import MessageFilModel from "../modals/message-file.model";
 import InitialModal from "../modals/initial-modal";
 import DeleteMessageModal from "../modals/Delete-Message-Modal";
+import EditMessageFileModel from "../modals/edit-message-file.model";
+import { usePathname } from "next/navigation";
 
 const ModalProvider = () => {
+    const pathname = usePathname();
+    const isAuthPage =
+        pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up");
+
+    if (isAuthPage) {
+        return null;
+    }
+
     const { userId, isSignedIn } = useAuth();
     if (!isSignedIn) return null;
 
@@ -29,6 +39,7 @@ const ModalProvider = () => {
             <DeleteChannelModal />
             <MessageFilModel />
             <DeleteMessageModal />
+            <EditMessageFileModel />
             <EditServerModal userId={userId} />
             <CreateServerModal userId={userId} />
             <CreateChannelModal userId={userId} />

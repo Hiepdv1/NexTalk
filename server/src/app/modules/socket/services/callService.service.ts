@@ -1,13 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Producer, Room } from '../dto/channel.dto';
 import wrtc from 'wrtc';
 import { v4 as genuid } from 'uuid';
 import { WsNotFoundException } from 'src/errors/WsError';
 import { TwilioService } from 'nestjs-twilio';
+import { Socket } from 'socket.io';
+import { AppHelperService } from '@src/common/helpers/app.helper';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class CallService {
   private readonly ChannelStore: Map<string, Room> = new Map();
+  private readonly logger = new Logger(CallService.name);
   private SERVER_STUNS: Array<{
     url?: string;
     urls: string;
@@ -15,15 +19,28 @@ export class CallService {
     credential?: string;
   }> = [];
 
-  constructor(private readonly twilioService: TwilioService) {}
+  private PEER_CONFIG: RTCConfiguration = {
+    iceServers: this.SERVER_STUNS,
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle',
+  };
+
+  private SECRET_KEY: string;
+
+  constructor(
+    private readonly twilioService: TwilioService,
+    private readonly configService: ConfigService
+  ) {
+    this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
+  }
 
   public async CreateTwilioToken() {
     try {
       const token = await this.twilioService.client.tokens.create();
 
       const iceServers = [
-        { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun3.l.google.com:19302' },
         { urls: 'stun:stun4.l.google.com:19302' },
@@ -32,11 +49,14 @@ export class CallService {
 
       this.SERVER_STUNS = [...(token.iceServers as any), ...iceServers];
 
-      this.SERVER_STUNS.forEach((server: any) => {
+      this.SERVER_STUNS.forEach((server: Record<string, any>) => {
         if (server.url) {
           delete server.url;
         }
       });
+
+      this.PEER_CONFIG.iceServers = this.SERVER_STUNS;
+      console.log('PEER_CONFIG: ', this.PEER_CONFIG);
 
       console.log('Twilio Token Created:', this.SERVER_STUNS);
     } catch (error) {
@@ -66,6 +86,7 @@ export class CallService {
     userId: string;
   }) {
     let room = this.ChannelStore.get(roomId);
+
     if (!room) {
       room = {
         roomId,
@@ -77,6 +98,7 @@ export class CallService {
         userId,
         producers: [],
       });
+
       this.ChannelStore.set(roomId, room);
     }
 
@@ -105,18 +127,231 @@ export class CallService {
     return channel;
   }
 
+  private handleIceCandidateConsumer({
+    event,
+    roomId,
+    socket,
+    producerId,
+    userId,
+    participantId,
+    consumerId,
+  }: {
+    event: RTCPeerConnectionIceEvent;
+    roomId: string;
+    socket: Socket;
+    producerId: string;
+    userId: string;
+    participantId: string;
+    consumerId: string;
+  }) {
+    if (event.candidate) {
+      const candidateData = {
+        type: 'candidate',
+        candidate: event.candidate,
+        roomId,
+        target: participantId,
+        producerId,
+        consumerId,
+        userId,
+      };
+
+      const encryptedIceCandidate = AppHelperService.encrypt(
+        JSON.stringify(candidateData),
+        this.SECRET_KEY
+      );
+
+      socket.emit('ice-candidate-consumer', encryptedIceCandidate);
+    }
+  }
+
+  private handleIceCandidateProducer({
+    event,
+    roomId,
+    socket,
+    producerId,
+    userId,
+  }: {
+    event: RTCPeerConnectionIceEvent;
+    roomId: string;
+    socket: Socket;
+    producerId: string;
+    userId: string;
+  }) {
+    if (event.candidate) {
+      const candidateData = {
+        type: 'candidate',
+        candidate: event.candidate,
+        roomId,
+        target: socket.id,
+        producerId,
+        userId,
+      };
+
+      const encryptedIceCandidate = AppHelperService.encrypt(
+        JSON.stringify(candidateData),
+        this.SECRET_KEY
+      );
+
+      socket.emit('ice-candidate-producer', encryptedIceCandidate);
+    }
+  }
+
+  private handleConnectionFailure(peer: RTCPeerConnection, retryCount = 0) {
+    const MAX_RETRIES = 3;
+
+    if (retryCount >= MAX_RETRIES) {
+      peer.close();
+      return;
+    }
+
+    const restart = () => {
+      try {
+        peer.restartIce();
+        this.logger.debug(`ICE restart attempt ${retryCount + 1}`);
+      } catch {
+        this.handleConnectionFailure(peer, retryCount + 1);
+      }
+    };
+
+    setTimeout(restart, 2000 * Math.pow(2, retryCount));
+  }
+  private onTrackProducer({
+    e,
+    producerId,
+    socketId,
+    userId,
+    peer,
+    type,
+    participants,
+  }: {
+    e: RTCTrackEvent;
+    producerId: string;
+    socketId: string;
+    userId: string;
+    peer: RTCPeerConnection;
+    type: string;
+    participants: {
+      userId: string;
+      producers: Producer[];
+    };
+  }) {
+    const producer = this.handleTrackEvent(e, producerId);
+
+    if (!producer.streams || producer.streams.length === 0) {
+      console.error('No stream in producer:', producer);
+      return;
+    }
+
+    const existingProducer = participants.producers.find(
+      (p) => p.senderId === socketId && p.id === producer.id
+    );
+
+    if (existingProducer) {
+      const combinedMediaStream = new wrtc.MediaStream() as MediaStream;
+
+      producer.streams.forEach((stream) => {
+        stream.getTracks().forEach((track) => {
+          if (track.readyState !== 'ended') {
+            combinedMediaStream.addTrack(track);
+          }
+        });
+      });
+
+      existingProducer.streams.forEach((stream) => {
+        stream.getTracks().forEach((track) => {
+          if (track.readyState !== 'ended') {
+            combinedMediaStream.addTrack(track);
+          }
+        });
+      });
+
+      existingProducer.streams = [combinedMediaStream];
+      existingProducer.kind = producer.kind;
+      existingProducer.enabled = producer.enabled;
+    } else {
+      participants.producers.push({
+        ...producer,
+        senderId: socketId,
+        userId,
+        peer,
+        type,
+      });
+    }
+  }
+
+  private async ClosePeerProducer({
+    socketId,
+    producerId,
+    roomId,
+  }: {
+    socketId: string;
+    producerId: string;
+    roomId: string;
+  }) {
+    const room = this.ChannelStore.get(roomId);
+
+    if (!room) return;
+
+    const participants = room.participants.get(socketId);
+
+    if (!participants) return;
+
+    const producerIndex = participants.producers.findIndex(
+      (p) => p.id === producerId
+    );
+
+    if (producerIndex === -1) return;
+
+    participants.producers[producerIndex].peer.close();
+
+    this.logger.debug(
+      `Close Peer Producer: ${participants.producers[producerIndex].id}`
+    );
+    participants.producers.splice(producerIndex, 1);
+  }
+
+  private async ClosePeerConsumer({
+    consumerId,
+    roomId,
+    senderId,
+  }: {
+    consumerId: string;
+    senderId: string;
+    roomId: string;
+  }) {
+    const room = this.ChannelStore.get(roomId);
+
+    if (!room) return;
+
+    const consumers = room.consumers.get(senderId);
+
+    if (!consumers) return;
+
+    const consumerIndex = consumers.findIndex((c) => c.id === consumerId);
+
+    if (consumerIndex === -1) return;
+
+    consumers[consumerIndex].peer.close();
+    this.logger.debug(`Close Peer Producer: ${consumers[consumerIndex].id}`);
+    consumers.splice(consumerIndex, 1);
+  }
+
   public async createProducer({
     roomId,
     socketId,
     sdp,
     userId,
     type,
+    socket,
+    _producerId,
   }: {
     roomId: string;
     socketId: string;
     sdp: RTCSessionDescriptionInit;
     userId: string;
     type: string;
+    socket: Socket;
+    _producerId?: string;
   }) {
     const room = this.ChannelStore.get(roomId);
     if (!room) {
@@ -129,119 +364,189 @@ export class CallService {
       throw new WsNotFoundException('Participants not found');
     }
 
-    const peer: RTCPeerConnection = new wrtc.RTCPeerConnection({
-      iceServers: this.SERVER_STUNS,
+    const producerId = _producerId || genuid();
+
+    const existingProducerIndex = participants.producers.findIndex(
+      (p) => p.id === producerId
+    );
+
+    if (existingProducerIndex !== -1) {
+      this.logger.debug('Remove old peer producer');
+      const oldProducer = participants.producers[existingProducerIndex];
+      oldProducer.peer.close();
+      participants.producers.splice(existingProducerIndex, 1);
+    }
+
+    const peer: RTCPeerConnection = new wrtc.RTCPeerConnection(
+      this.PEER_CONFIG
+    );
+
+    let kind: string;
+
+    if (type === 'screen') {
+      kind = 'video/audio';
+    } else {
+      kind = type;
+    }
+
+    const mediaStream = new wrtc.MediaStream();
+
+    participants.producers.push({
+      id: producerId,
+      streams: [mediaStream],
+      enabled: false,
+      kind,
+      peer,
+      senderId: socket.id,
+      trackId: mediaStream.id,
+      type,
+      userId,
     });
 
-    let newInfoProducer: Producer;
-
-    const producerId = genuid();
-
-    peer.ontrack = (e) => {
-      const producer = this.handleTrackEvent(e, producerId);
-
-      if (!producer.streams || producer.streams.length === 0) {
-        console.error('No stream in producer:', producer);
-        return;
-      }
-
-      newInfoProducer = {
-        ...producer,
-        senderId: socketId,
+    peer.onicecandidate = (event) => {
+      this.handleIceCandidateProducer({
+        event,
+        roomId,
+        socket,
+        producerId,
         userId,
+      });
+    };
+
+    peer.ontrack = (e: RTCTrackEvent) => {
+      this.onTrackProducer({
+        e,
+        producerId,
+        socketId: socket.id,
         peer,
         type,
-      };
+        participants,
+        userId,
+      });
+    };
 
-      const existingProducer = participants.producers.find(
-        (p) => p.senderId === socketId && p.id === newInfoProducer.id
-      );
-
-      if (existingProducer) {
-        const combinedMediaStream = new wrtc.MediaStream() as MediaStream;
-
-        producer.streams.forEach((stream) => {
-          stream.getTracks().forEach((track) => {
-            combinedMediaStream.addTrack(track);
-          });
-        });
-
-        existingProducer.streams.forEach((stream) => {
-          stream.getTracks().forEach((track) => {
-            combinedMediaStream.addTrack(track);
-          });
-        });
-
-        existingProducer.streams = [combinedMediaStream];
-        existingProducer.kind = producer.kind;
-        existingProducer.enabled = producer.enabled;
-      } else {
-        participants.producers.push(newInfoProducer);
+    peer.onconnectionstatechange = () => {
+      this.logger.debug(`Connection state changed: ${peer.connectionState}`);
+      if (
+        peer.connectionState === 'failed' ||
+        peer.connectionState === 'disconnected'
+      ) {
+        this.handleConnectionFailure(peer);
+        const encrypted = AppHelperService.encrypt(
+          JSON.stringify({ producerId, type }),
+          this.SECRET_KEY
+        );
+        socket.emit('producer-ice-restart-required', encrypted);
       }
-
-      this.ChannelStore.set(roomId, room);
+      if (peer.connectionState === 'closed') {
+        this.ClosePeerProducer({
+          socketId,
+          producerId,
+          roomId,
+        });
+      }
     };
 
     const offer = new wrtc.RTCSessionDescription(sdp);
     await peer.setRemoteDescription(offer);
+
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
 
     const payload = {
       sdp: peer.localDescription,
-      kind: newInfoProducer.kind,
-      senderId: newInfoProducer.senderId,
+      kind,
+      senderId: socketId,
       peer,
       userId,
-      id: newInfoProducer.id,
+      id: producerId,
     };
 
     return payload;
   }
 
-  public async createConsumerOffer({
-    chanellId,
-    producerId,
-    kind,
+  public async AddIceCandidateForConsumer({
+    candidate,
+    roomId,
+    socketId,
+    consumerId,
   }: {
-    chanellId: string;
-    producerId: string;
-    kind: string;
+    candidate: RTCIceCandidate | RTCIceCandidate[];
+    roomId: string;
+    socketId: string;
+    consumerId: string;
   }) {
-    const room = this.ChannelStore.get(chanellId);
-    if (!room) {
-      throw new WsNotFoundException('Room not found');
+    const channel = this.ChannelStore.get(roomId);
+
+    if (!channel)
+      throw new WsNotFoundException(`Channel ${roomId} was not found`);
+
+    const consumer = channel.consumers.get(socketId);
+
+    if (!consumer)
+      throw new WsNotFoundException(`The consumer ${socketId} was not found`);
+
+    const consumerPeer = consumer.find((c) => c.id === consumerId);
+
+    if (!consumerPeer)
+      throw new WsNotFoundException(
+        `The consumer ${consumerId} was not found or Connection Not Ready: The remote description has not been set yet. Please wait a few seconds for the connection setup to complete before sending ICE candidates`
+      );
+
+    if (Array.isArray(candidate)) {
+      for (const ice of candidate) {
+        const newIceCandidate = new wrtc.RTCIceCandidate(ice);
+
+        await consumerPeer.peer.addIceCandidate(newIceCandidate);
+      }
+    } else {
+      const newIceCandidate = new wrtc.RTCIceCandidate(candidate);
+
+      await consumerPeer.peer.addIceCandidate(newIceCandidate);
     }
+    this.logger.debug('Icecandidate consumer added');
+  }
 
-    const participant = room.participants.get(producerId);
-    if (!participant) {
-      throw new WsNotFoundException('Producer not found');
+  public async AddIceCandidateForProducer({
+    candidate,
+    roomId,
+    socketId,
+    producerId,
+  }: {
+    candidate: RTCIceCandidate | RTCIceCandidate[];
+    roomId: string;
+    socketId: string;
+    producerId: string;
+  }) {
+    const channel = this.ChannelStore.get(roomId);
+
+    if (!channel)
+      throw new WsNotFoundException(`Channel ${roomId} was not found`);
+
+    const participant = channel.participants.get(socketId);
+
+    if (!participant)
+      throw new WsNotFoundException(
+        `The participant ${socketId} was not found`
+      );
+
+    const producer = participant.producers.find((p) => p.id === producerId);
+
+    if (!producer)
+      throw new WsNotFoundException(
+        `The producer ${producerId} was not found Or Connection Not Ready: The remote description has not been set yet. Please wait a few seconds for the connection setup to complete before sending ICE candidates`
+      );
+
+    if (Array.isArray(candidate)) {
+      for (const ice of candidate) {
+        const newIceCandidate = new wrtc.RTCIceCandidate(ice);
+        await producer.peer.addIceCandidate(newIceCandidate);
+      }
+    } else {
+      const newIceCandidate = new wrtc.RTCIceCandidate(candidate);
+      await producer.peer.addIceCandidate(newIceCandidate);
     }
-
-    const consumerPeer: RTCPeerConnection = new wrtc.RTCPeerConnection({
-      iceServers: this.SERVER_STUNS,
-    });
-
-    const producer = participant.producers.find((p) => p.kind === kind);
-
-    if (!producer) {
-      throw new WsNotFoundException(`${kind} producer not found`);
-    }
-
-    producer.streams.forEach((stream) =>
-      stream.getTracks().forEach((track) => {
-        consumerPeer.addTrack(track, stream);
-      })
-    );
-
-    const offer = await consumerPeer.createOffer();
-    await consumerPeer.setLocalDescription(offer);
-
-    return {
-      sdp: consumerPeer.localDescription,
-      kind: producer.kind,
-      producerId,
-    };
+    this.logger.debug('Icecandidate producer added');
   }
 
   public async createConsumer({
@@ -249,15 +554,17 @@ export class CallService {
     roomId,
     participantId,
     sdp,
-    kind,
     producerId,
+    socket,
+    _consumerId,
   }: {
     socketId: string;
     roomId: string;
     participantId: string;
     sdp: RTCSessionDescriptionInit;
-    kind: string;
     producerId: string;
+    socket: Socket;
+    _consumerId?: string;
   }) {
     const room = this.ChannelStore.get(roomId);
     if (!room) {
@@ -269,17 +576,82 @@ export class CallService {
       throw new WsNotFoundException('Participants not found');
     }
 
-    const peer: RTCPeerConnection = new wrtc.RTCPeerConnection({
-      iceServers: this.SERVER_STUNS,
-    });
+    const peer: RTCPeerConnection = new wrtc.RTCPeerConnection(
+      this.PEER_CONFIG
+    );
 
-    console.log('Kind: ', kind);
+    const consumerId = _consumerId || genuid();
+
+    const consumers = room.consumers.get(socket.id);
+
+    if (consumers) {
+      const existingConsumerIndex = consumers.findIndex(
+        (c) => c.id === consumerId
+      );
+
+      if (existingConsumerIndex !== -1) {
+        this.logger.debug('Remove old peer consumer');
+        const oldProducer = consumers[existingConsumerIndex];
+        oldProducer.peer.close();
+        consumers.splice(existingConsumerIndex, 1);
+      }
+    }
 
     const producer = participants.producers.find((p) => p.id === producerId);
 
     if (!producer) {
-      throw new WsNotFoundException(`${kind} producer not found`);
+      throw new WsNotFoundException(`${producerId} producer not found`);
     }
+
+    const existingConsumer = room.consumers.get(socket.id);
+    const newConsumer = {
+      userId: participants.userId,
+      peer,
+      producerId,
+      id: consumerId,
+      type: producer.type,
+    };
+
+    if (existingConsumer) {
+      existingConsumer.push(newConsumer);
+    } else {
+      room.consumers.set(socketId, [newConsumer]);
+    }
+
+    peer.onicecandidate = (event) => {
+      this.handleIceCandidateConsumer({
+        event,
+        roomId,
+        socket,
+        producerId,
+        userId: participants.userId,
+        participantId,
+        consumerId,
+      });
+    };
+
+    peer.onconnectionstatechange = () => {
+      this.logger.debug(`Connection state changed: ${peer.connectionState}`);
+      if (
+        peer.connectionState === 'failed' ||
+        peer.connectionState === 'disconnected'
+      ) {
+        this.handleConnectionFailure(peer);
+        const encrypted = AppHelperService.encrypt(
+          JSON.stringify({
+            producerId,
+            consumerId,
+            senderId: producer.senderId,
+            kind: producer.kind,
+          }),
+          this.SECRET_KEY
+        );
+        socket.emit('consumer-ice-restart-required', encrypted);
+      }
+      if (peer.connectionState === 'closed') {
+        this.ClosePeerConsumer({ consumerId, roomId, senderId: participantId });
+      }
+    };
 
     producer.streams.forEach((stream) =>
       stream.getTracks().forEach((track) => {
@@ -295,27 +667,6 @@ export class CallService {
 
     const answer = await peer.createAnswer();
     await peer.setLocalDescription(answer);
-
-    const existingConsumer = room.consumers.get(socketId);
-
-    const consumerId = genuid();
-
-    const newConsumer = {
-      userId: participants.userId,
-      peer,
-      producerId,
-      id: consumerId,
-      type: producer.type,
-    };
-
-    if (existingConsumer) {
-      existingConsumer.push(newConsumer);
-    } else {
-      room.consumers.set(socketId, [newConsumer]);
-    }
-
-    console.log('New Consumer: ', newConsumer);
-    console.log('SocketId New Consumer: ', socketId);
 
     return {
       sdp: peer.localDescription,
@@ -341,6 +692,9 @@ export class CallService {
     if (!participant) throw new WsNotFoundException('The producer not found');
 
     const producerIdsToRemove = participant.producers.map((producer) => {
+      producer.peer
+        .getTransceivers()
+        .forEach((transceiver) => transceiver.stop());
       producer.peer.close();
       return producer.id;
     });
@@ -390,6 +744,10 @@ export class CallService {
 
     streams.forEach((stream) => {
       stream.getTracks().forEach((track) => {
+        if (!track) {
+          this.logger.warn('Encountered an undefined track, skipping.');
+          return;
+        }
         combinedStream.addTrack(track);
         kinds.push(track.kind);
       });

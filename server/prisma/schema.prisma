@@ -14,18 +14,19 @@ datasource db {
 }
 
 model Profile {
-  id            String    @id @default(uuid())
-  userId        String    @unique
-  name          String
-  imageUrl      String    @db.Text
-  email         String    @unique
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  name              String
+  imageUrl          String    @db.Text
+  email             String    @unique
 
-  servers        Server[]
-  members        Member[]
-  channel       Channel[]
+  servers           Server[]
+  members           Member[]
+  channel           Channel[]
+  userChannelRead   UserChannelRead[]
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 }
 
 model Server {
@@ -84,20 +85,21 @@ enum ChannelType {
 }
 
 model Channel {
-  id            String @id @default(uuid())
-  name          String
-  type          ChannelType @default(TEXT)
+  id              String @id @default(uuid())
+  name            String
+  type            ChannelType @default(TEXT)
 
-  profileId     String
-  profile       Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  profileId       String
+  profile         Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
-  serverId      String
-  server        Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
-  messages      Message[]
-  isDeleted     Boolean   @default(false)
+  serverId        String
+  server          Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  messages        Message[]
+  userChannelRead UserChannelRead[]
+  isDeleted       Boolean   @default(false)
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([profileId])
   @@index([serverId])
@@ -130,6 +132,18 @@ model Message {
   updatedAt     DateTime @updatedAt
   @@index([memberId])
   @@index([channelId])
+}
+
+model UserChannelRead {
+  id              String @id @default(uuid())
+  profileId       String
+  channel_id      String
+  last_read_at    DateTime @default(now())
+
+  channel Channel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, channel_id], name: "unique_profile_channel")
 }
 
 model Conversation {

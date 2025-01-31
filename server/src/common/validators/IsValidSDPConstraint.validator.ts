@@ -1,6 +1,5 @@
 import {
   registerDecorator,
-  ValidationArguments,
   ValidationOptions,
   ValidatorConstraint,
   ValidatorConstraintInterface,
@@ -8,11 +7,7 @@ import {
 
 @ValidatorConstraint({ async: false })
 export class IsValidSDPConstraint implements ValidatorConstraintInterface {
-  validate(
-    value: RTCSessionDescriptionInit,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    args: ValidationArguments
-  ): boolean {
+  validate(value: RTCSessionDescriptionInit): boolean {
     if (!value || typeof value !== 'object') return false;
 
     const validTypes = ['offer', 'answer', 'pranswer', 'rollback'];
@@ -24,9 +19,7 @@ export class IsValidSDPConstraint implements ValidatorConstraintInterface {
       value.sdp.trim().length > 0
     );
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  defaultMessage(args: ValidationArguments): string {
+  defaultMessage(): string {
     return 'sdp must be a valid RTCSessionDescriptionInit object with a valid type and sdp string.';
   }
 }

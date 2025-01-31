@@ -11,12 +11,17 @@ import {
   Post,
   Query,
   Req,
+  UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { AuthService } from '../../auth/services/auth.service';
 import { Request } from 'express';
-import { ChannelEditDto, CreateChannelDto } from '../dto/channel.dto';
+import {
+  ChannelEditDto,
+  CreateChannelDto,
+  EditMessageFileDto,
+} from '../dto/channel.dto';
 import { ChannelService } from '../services/channel.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ServerService } from '../../server/services/server.service';
@@ -35,6 +40,7 @@ import { MediaGateway } from '../../socket/gateway/Media.gateway';
 @Controller('/channels')
 export class ChannelController {
   private SECRET_KEY: string;
+  private HASH_MESSAGE_SECRET_KEY_DB: string;
 
   constructor(
     private readonly authService: AuthService,
@@ -50,6 +56,9 @@ export class ChannelController {
     private readonly serverCacheService: ServerCacheService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
+    this.HASH_MESSAGE_SECRET_KEY_DB = configService.get<string>(
+      'HASH_MESSAGE_SECRET_KEY_DB'
+    );
   }
 
   @Post('/create')
@@ -89,7 +98,7 @@ export class ChannelController {
       this.SECRET_KEY
     );
 
-    this.mediaGateway.server.emit('channel:created:update', encryptData);
+    this.mediaGateway.server.emit('channel:update:global', encryptData);
 
     return {
       statusCode: 200,
@@ -110,11 +119,11 @@ export class ChannelController {
     await this.channelService.DeleteChannel(serverId, channelId, profile.id);
 
     const encryptData = AppHelperService.encrypt(
-      JSON.stringify({ id: channelId, serverId }),
+      JSON.stringify({ channelId, serverId }),
       this.SECRET_KEY
     );
 
-    this.mediaGateway.server.emit('channel:deleted:update', encryptData);
+    this.mediaGateway.server.emit('channel:deleted:global', encryptData);
 
     return {
       statusCode: 200,
@@ -133,14 +142,24 @@ export class ChannelController {
 
     if (!profile) throw new NotFoundException('The User does not exist');
 
-    const channelUpdated = await this.channelService.updateChannel(
+    await this.channelService.updateChannel(
       channelId,
       serverId,
       profile.id,
       data
     );
 
-    return channelUpdated;
+    const encryptedData = AppHelperService.encrypt(
+      JSON.stringify({
+        id: channelId,
+        serverId,
+        name: data.name,
+        type: data.type,
+      }),
+      this.SECRET_KEY
+    );
+
+    this.mediaGateway.server.emit('channel:update:global', encryptedData);
   }
 
   @Get('/:channelId/myself')
@@ -208,7 +227,7 @@ export class ChannelController {
   public async messageChannelUploadFile(
     @UploadedFile(
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 104857600 })
+        .addMaxSizeValidator({ maxSize: 1073741824 })
         .build({
           errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
         })
@@ -237,7 +256,7 @@ export class ChannelController {
     if (file.mimetype.startsWith('video/')) {
       const uploadFile = (await this.cloudinaryService.UploadFile(
         file,
-        'Discord/videos',
+        'NexTalk/videos',
         file.mimetype
       )) as { _id: string; url: string };
 
@@ -250,7 +269,7 @@ export class ChannelController {
 
       const thumbnailUpload = await this.cloudinaryService.uploadBuffer(
         thumbnailBuffer,
-        'Discord/images',
+        'NexTalk/images',
         genuuid()
       );
 
@@ -268,6 +287,11 @@ export class ChannelController {
         StorageType.CLOUDINARY
       );
 
+      newMessage.content = AppHelperService.decrypt(
+        newMessage.content,
+        this.HASH_MESSAGE_SECRET_KEY_DB
+      );
+
       const encryptData = AppHelperService.encrypt(
         JSON.stringify(newMessage),
         this.SECRET_KEY
@@ -283,7 +307,7 @@ export class ChannelController {
       const uploadFiles = await this.dropboxService.uploadFile(
         file.originalname,
         file.buffer,
-        { path: '/Discord-app/File-Messages' }
+        { path: '/NexTalk/File-Messages' }
       );
 
       const type = file.mimetype.startsWith('image/')
@@ -302,6 +326,11 @@ export class ChannelController {
         StorageType.DROPBOX
       );
 
+      newMessage.content = AppHelperService.decrypt(
+        newMessage.content,
+        this.HASH_MESSAGE_SECRET_KEY_DB
+      );
+
       const encryptData = AppHelperService.encrypt(
         JSON.stringify(newMessage),
         this.SECRET_KEY
@@ -313,6 +342,173 @@ export class ChannelController {
         statusCode: 200,
         message: 'uploaded successfully',
       };
+    }
+  }
+
+  @Patch('/messages/editFile')
+  @UseInterceptors(FileInterceptor('file'))
+  public async EditMessageFile(
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addMaxSizeValidator({ maxSize: 104857600 })
+        .build({
+          // errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+          errorHttpStatusCode: HttpStatus.BAD_REQUEST,
+        })
+    )
+    file: Express.Multer.File,
+    @Req() req: Request,
+    @Body() data: EditMessageFileDto
+  ) {
+    const userId = req.userId;
+    const { messageId, channelId, serverId, thubnailHeight, thubnailWidth } =
+      data;
+    const profile = await this.authService.findUserById(userId);
+
+    if (!profile) throw new UnauthorizedException('Unauthorized');
+    const message = await this.channelService.ExistingMessage({
+      channelId,
+      serverId,
+      messageId,
+      profileId: profile.id,
+    });
+
+    if (!message) throw new NotFoundException('The Message was not found');
+
+    if (file.mimetype.startsWith('video/')) {
+      const uploadVideo = (await this.cloudinaryService.UploadFile(
+        file,
+        'NexTalk/videos',
+        file.mimetype
+      )) as { _id: string; url: string };
+
+      const thumbnailBuffer =
+        await this.cloudinaryService.createThumbnailFromVideo(
+          uploadVideo._id,
+          '10',
+          { width: thubnailWidth ?? 600, height: thubnailHeight ?? 500 }
+        );
+
+      const thumbnailUpload = await this.cloudinaryService.uploadBuffer(
+        thumbnailBuffer,
+        'NexTalk/images',
+        genuuid()
+      );
+
+      if (message.type === MessageType.VIDEO) {
+        await Promise.all([
+          this.messageService.addToTempStoreFile({
+            fileId: message.fileId,
+            storageType: message.storageType,
+            messageType: 'VIDEO',
+          }),
+          this.messageService.addToTempStoreFile({
+            fileId: message.posterId,
+            storageType: message.storageType,
+            messageType: 'IMAGE',
+          }),
+        ]);
+      } else {
+        await this.messageService.addToTempStoreFile({
+          fileId: message.fileId,
+          storageType: message.storageType,
+          messageType: message.type,
+        });
+      }
+
+      const messageUpdated = await this.channelService.UpdateMessageVideo({
+        channelId,
+        serverId,
+        messageId,
+        content: uploadVideo.url,
+        fileId: uploadVideo._id,
+        fileUrl: uploadVideo.url,
+        posterId: thumbnailUpload._id,
+        posterUrl: thumbnailUpload.url,
+        profileId: profile.id,
+      });
+
+      messageUpdated.content = AppHelperService.decrypt(
+        messageUpdated.content,
+        this.HASH_MESSAGE_SECRET_KEY_DB
+      );
+
+      const encryptData = AppHelperService.encrypt(
+        JSON.stringify({
+          ...messageUpdated,
+          channelId,
+          serverId,
+        }),
+        this.SECRET_KEY
+      );
+
+      console.log('Emmiting message update: ', encryptData);
+
+      this.mediaGateway.server.emit('chat:message:update:global', encryptData);
+      return;
+    } else {
+      const uploadFile = await this.dropboxService.uploadFile(
+        file.originalname,
+        file.buffer,
+        { path: '/NexTalk/File-Messages' }
+      );
+
+      if (message.type === MessageType.VIDEO) {
+        await Promise.all([
+          this.messageService.addToTempStoreFile({
+            fileId: message.fileId,
+            storageType: StorageType.CLOUDINARY,
+            messageType: MessageType.VIDEO,
+          }),
+          this.messageService.addToTempStoreFile({
+            fileId: message.posterId,
+            storageType: StorageType.CLOUDINARY,
+            messageType: MessageType.IMAGE,
+          }),
+        ]);
+      } else {
+        await this.messageService.addToTempStoreFile({
+          fileId: message.fileId,
+          storageType: StorageType.DROPBOX,
+          messageType: message.type,
+        });
+      }
+
+      const currentType = file.mimetype.startsWith('video/')
+        ? MessageType.VIDEO
+        : file.mimetype.startsWith('image/')
+          ? MessageType.IMAGE
+          : MessageType.FILE;
+
+      const messageUpdated = await this.channelService.updateMessageFile({
+        channelId,
+        serverId,
+        messageId,
+        content: uploadFile.url,
+        fileId: uploadFile.file.path_lower,
+        fileUrl: uploadFile.url,
+        profileId: profile.id,
+        type: currentType,
+      });
+
+      messageUpdated.content = AppHelperService.decrypt(
+        messageUpdated.content,
+        this.HASH_MESSAGE_SECRET_KEY_DB
+      );
+
+      const encryptData = AppHelperService.encrypt(
+        JSON.stringify({
+          ...messageUpdated,
+          channelId,
+          serverId,
+        }),
+        this.SECRET_KEY
+      );
+
+      console.log('Emmiting message update: ', encryptData);
+      this.mediaGateway.server.emit('chat:message:update:global', encryptData);
+
+      return;
     }
   }
 

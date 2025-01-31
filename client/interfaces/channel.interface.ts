@@ -1,3 +1,4 @@
+import { Message } from "./message.interface";
 import { channelType, IMember, MemberRole } from "./server.interface";
 
 export interface ICreateChannel {
@@ -13,6 +14,11 @@ export interface Channel {
     serverId: string;
     createdAt: Date;
     updatedAt: Date;
+}
+
+export interface ChannelMessageUpdatedGlobal extends Message {
+    channelId: string;
+    serverId: string;
 }
 
 export interface Member {

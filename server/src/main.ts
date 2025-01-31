@@ -8,6 +8,7 @@ import * as bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
 import { SocketAdapter } from './providers/Adapter/socket.adapter';
 import { HttpExceptionsFilter } from './common/exceptions/http-exceptions.filter';
+// import crypto from 'crypto';
 
 async function bootstrap() {
   const app = await NestFactory.create(MainModule, { bodyParser: true });
@@ -23,6 +24,11 @@ async function bootstrap() {
     origin: hostName,
     credentials: true,
   });
+
+  // console.log(
+  //   '--------------------------------------- Key: ',
+  //   crypto.randomBytes(32).toString('hex')
+  // );
 
   app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', hostName);

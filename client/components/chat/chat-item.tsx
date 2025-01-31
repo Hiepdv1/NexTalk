@@ -21,6 +21,11 @@ import { useSocket } from "../providers/socket-provider";
 import { useModal } from "@/hooks/use-modal-store";
 import VideoChat from "./chat-video";
 import { useParams, useRouter } from "next/navigation";
+import api from "@/API/axios";
+import { appendFormData } from "@/API/api";
+import ProgressBar from "../loadding/ProgressBar";
+import { useData } from "../providers/data-provider";
+
 interface IChatItemProps {
     id: string;
     content: string;
@@ -32,9 +37,10 @@ interface IChatItemProps {
     currentMember: CurrentMember;
     isUpdated: boolean;
     socketQuery: Record<string, string>;
-    channelId: string;
+    progress?: number;
     serverId: string;
     psoterUrl?: string;
+    channelId: string;
     type: MessageType;
 }
 
@@ -55,19 +61,26 @@ const ChatItem = ({
     deleted,
     isUpdated,
     member,
+    progress,
     timestamp,
     fileUrl,
-    channelId,
     serverId,
     fileId,
     type,
     psoterUrl,
+    channelId,
 }: IChatItemProps) => {
     const { isConnected, sendMessage } = useSocket();
+    const { handleEditMessage } = useData();
     const [isEditing, setIsEditing] = useState(false);
+    const [isEditingFile, setIsEditingFile] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
-    const [isLoadingModify, setIsLoadingModify] = useState(false);
     const { onOpen } = useModal();
+    const [isLoadingModify, setIsLoadingModify] = useState(false);
+    const isEditFile =
+        type === MessageType.FILE ||
+        type === MessageType.VIDEO ||
+        type === MessageType.IMAGE;
     const params = useParams();
     const router = useRouter();
 
@@ -92,6 +105,7 @@ const ChatItem = ({
     const isImage = type === MessageType.IMAGE;
     const isVideo = type === MessageType.VIDEO;
     const isFile = type === MessageType.FILE;
+    const isText = type === MessageType.TEXT;
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -160,7 +174,47 @@ const ChatItem = ({
         }
     };
 
-    console.log("content: ", content, id);
+    const handleEditMessageFile = async (data: {
+        file: File;
+        pathFile: string;
+    }) => {
+        setIsEditingFile(true);
+        const payload = appendFormData({
+            file: data.file,
+            channelId,
+            serverId,
+            messageId: id,
+            thubnailWidth: 384,
+            thubnailHeight: 216,
+        });
+
+        await api.patch("/channels/messages/editFile", payload, {
+            headers: {
+                "Content-Type": "multipart/form-data",
+            },
+            onUploadProgress(progressEvent) {
+                let progress;
+                if (progressEvent.total) {
+                    progress = Math.round(
+                        Math.round(
+                            (progressEvent.loaded / progressEvent.total) * 100
+                        )
+                    );
+
+                    handleEditMessage({
+                        channelId,
+                        serverId,
+                        messageId: id,
+                        updatedAt: new Date(),
+                        content,
+                        progress,
+                    });
+                }
+            },
+        });
+
+        setIsEditingFile(false);
+    };
 
     return (
         <div className="relative group flex items-cneter hover:bg-black/5 p-4 transition w-full">
@@ -211,6 +265,17 @@ const ChatItem = ({
                                         />
                                     </a>
                                 )}
+                                {!deleted && isEditingFile && (
+                                    <div className="absolute top-0 left-0 right-0 bottom-0 max-w-96 dark:bg-[rgba(0,0,0,.65)] h-full">
+                                        <div className="absolute w-96 top-1/2 -translate-y-1/2 px-2 ">
+                                            <ProgressBar
+                                                key={progress}
+                                                className="max-w-96"
+                                                progress={progress || 0}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
                                 {deleted && (
                                     <p
                                         className={cn(
@@ -223,7 +288,7 @@ const ChatItem = ({
                             </>
                         )}
                         {isFile && (
-                            <>
+                            <div className="relative">
                                 {!deleted && (
                                     <div className="relative flex items-center p-2 mt-2 rounded-md bg-background/10 ">
                                         <FileIcon className="w-10 h-10 fill-indigo-200 stroke-indigo-400" />
@@ -247,17 +312,39 @@ const ChatItem = ({
                                         {content}
                                     </p>
                                 )}
-                            </>
+
+                                {!deleted && isEditingFile && (
+                                    <div className="w-96 px-2 ">
+                                        <ProgressBar
+                                            key={progress}
+                                            className="max-w-96"
+                                            progress={progress || 0}
+                                        />
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {isVideo && (
-                            <>
+                            <div className="relative">
                                 {!deleted && (
                                     <VideoChat
-                                        path={fileUrl}
-                                        posterUrl={psoterUrl}
+                                        videoUrl={fileUrl ?? ""}
+                                        posterUrl={psoterUrl ?? ""}
                                     />
                                 )}
+                                {!deleted && isEditingFile && (
+                                    <div className="absolute top-0 left-0 right-0 bottom-0 max-w-96 dark:bg-[rgba(0,0,0,.65)] h-full">
+                                        <div className="absolute w-96 top-1/2 -translate-y-1/2 px-2 ">
+                                            <ProgressBar
+                                                key={progress}
+                                                className="max-w-96"
+                                                progress={progress || 0}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
                                 {deleted && (
                                     <p
                                         className={cn(
@@ -267,10 +354,10 @@ const ChatItem = ({
                                         {content}
                                     </p>
                                 )}
-                            </>
+                            </div>
                         )}
 
-                        {!fileUrl && !isEditing && (
+                        {isText && (
                             <p
                                 className={cn(
                                     "text-sm text-zinc-600 dark:text-zinc-300",
@@ -287,7 +374,7 @@ const ChatItem = ({
                             </p>
                         )}
 
-                        {!fileUrl && isEditing && (
+                        {isText && isEditing && (
                             <Form {...form}>
                                 <form
                                     className="flex items-center w-full gap-x-2 pt-2"
@@ -329,10 +416,26 @@ const ChatItem = ({
                 </div>
                 {canDeleteMessage && (
                     <div className="hidden group-hover:flex items-center gap-x-2 absolute p-1 top-2 right-5 bg-white dark:bg-zinc-800 border rounded-sm">
-                        {canDeleteMessage && (
+                        {canDeleteMessage && !isEditFile && (
                             <ActionTooltip label="Edit">
                                 <Edit
                                     onClick={() => setIsEditing(true)}
+                                    className="cursor-pointer ml-auto w-4 h-5 text-zinc-500  hover:text-zinc-600 dark:hover:text-zinc-300 transition"
+                                />
+                            </ActionTooltip>
+                        )}
+
+                        {canDeleteMessage && isEditFile && (
+                            <ActionTooltip key={psoterUrl} label="Edit">
+                                <Edit
+                                    onClick={() => {
+                                        onOpen("EditMessageFile", {
+                                            posterImageUrl: psoterUrl ?? "",
+                                            currentMessageUrl: fileUrl ?? "",
+                                            fileId,
+                                            onUploadFile: handleEditMessageFile,
+                                        });
+                                    }}
                                     className="cursor-pointer ml-auto w-4 h-5 text-zinc-500  hover:text-zinc-600 dark:hover:text-zinc-300 transition"
                                 />
                             </ActionTooltip>

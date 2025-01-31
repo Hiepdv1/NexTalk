@@ -64,15 +64,12 @@ const ChatMessage = ({
         handleDeleteMessage,
         handleEditMessage,
         handelSetMessageConversationArray,
-        handleAddMessageConversation,
     } = useData();
-    const { addListener, removeListener } = useSocketEvents();
+    const { addListener } = useSocketEvents();
     const { hasNextPage, fetchNextPage, isFetchingNextPage } = useQueryChat({
         apiUrl,
         message: {
             ...message,
-        },
-        query: {
             ...socketQuery,
         },
     });
@@ -83,7 +80,6 @@ const ChatMessage = ({
         pendingMessages,
         removePendingMessageByTimestamp,
         pendingDirectMessages,
-        handelRemovePendingDirectMessages,
     } = usePendingMessages();
     const { socket } = useSocket();
 
@@ -98,9 +94,16 @@ const ChatMessage = ({
         currentPendingMessages = pendingMessages.filter(
             (message) => message.channelId === chatId
         );
+        console.log("Pending messages channel");
+        console.log("Pending messages channel Data: ", currentPendingMessages);
     } else {
         currentPendingMessages = pendingDirectMessages.filter(
             (msg) => msg.conversationId === conversation?.id
+        );
+        console.log("Pending messages Conversation");
+        console.log(
+            "Pending messages Conversation Data: ",
+            currentPendingMessages
         );
     }
 
@@ -164,12 +167,6 @@ const ChatMessage = ({
         handelSetMessageConversationArray(message, socketQuery.conversationId);
     };
 
-    const handleIncomingDirectMessage = (data: any) => {
-        const message = JSON.parse(decrypt(data));
-        handelRemovePendingDirectMessages(message.timestamp);
-        handleAddMessageConversation(message);
-    };
-
     const setupSocketListeners = () => {
         addListener(
             `chat:${socketQuery.channelId}:messages`,
@@ -186,10 +183,6 @@ const ChatMessage = ({
         addListener(
             `server:${socketQuery.serverId}:conversation:${socketQuery.conversationId}:message`,
             handleFetchConversationMessage
-        );
-        addListener(
-            `chat:${socketQuery.serverId}:conversation:message`,
-            handleIncomingDirectMessage
         );
     };
 
@@ -247,6 +240,9 @@ const ChatMessage = ({
         chatRef.current?.scrollTo(0, chatRef.current?.scrollHeight || 0);
     }, [pendingMessages, pendingDirectMessages]);
 
+    console.log("Messages: ", messages);
+    console.log("PendingDirectMessages: ", currentPendingMessages);
+
     return (
         <div
             ref={chatRef}
@@ -279,6 +275,7 @@ const ChatMessage = ({
                                 fileId={message.fileId}
                                 fileUrl={message.fileUrl}
                                 psoterUrl={message.posterUrl}
+                                progress={message.progress}
                                 type={message.type}
                                 deleted={message.deleted}
                                 timestamp={format(

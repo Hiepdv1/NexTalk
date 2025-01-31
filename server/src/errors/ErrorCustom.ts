@@ -45,7 +45,6 @@ export interface ErrorMetadata {
   timestamp?: string;
   source?: string;
 }
-
 export interface ValidationError {
   property: string;
   value?: any;
@@ -66,6 +65,7 @@ interface ErrorDetails {
   field?: string;
   code?: string;
   metadata?: Record<string, any>;
+  stack?: any;
 }
 
 export interface ErrorResponse {
@@ -103,6 +103,7 @@ export class ErrorCustom extends Error {
       details = {},
       path,
       correlationId,
+      stack,
     } = options || {};
 
     this.name = this.constructor.name;
@@ -114,8 +115,7 @@ export class ErrorCustom extends Error {
     this.details = this.normalizeDetails(details);
     this.path = path;
     this.correlationId = correlationId || this.generateCorrelationId();
-
-    Error.captureStackTrace(this, this.constructor);
+    this.stack = stack;
   }
 
   private getStatus(statusCode: number): ErrorStatus {
@@ -167,15 +167,16 @@ export class ErrorCustom extends Error {
     error: HttpException | BaseWsException | WsException,
     path?: string
   ): ErrorCustom {
-    let status: number = 500;
-    let response: any = null;
+    let status = 500;
+    let response: any = error;
+    const type = error.message.toLowerCase();
 
-    if (error instanceof BaseWsException || error instanceof HttpException) {
+    if (!(error instanceof WsException)) {
+      response = error.getResponse();
       status = error.getStatus();
-      response = error.getResponse() as any;
     }
 
-    const message: string = response?.message || error.message;
+    const message = response.message || error.message;
     const metadata: ErrorMetadata = {
       timestamp: new Date().toISOString(),
       source: 'NestJS',
@@ -188,42 +189,37 @@ export class ErrorCustom extends Error {
     if (
       error instanceof BadRequestException ||
       error instanceof WsBadRequestException ||
-      message.toLocaleLowerCase().includes('bad request')
+      type.includes('bad request')
     ) {
       errorType = ErrorType.BAD_REQUEST;
       status = 400;
     } else if (
       error instanceof UnauthorizedException ||
       error instanceof WsUnauthorizedException ||
-      message.toLocaleLowerCase().includes('unauthorized')
+      type.includes('unauthorized')
     ) {
-      status = 401;
       errorType = ErrorType.UNAUTHORIZED;
+      status = 401;
     } else if (
       error instanceof ForbiddenException ||
       error instanceof WsForbiddenException ||
-      message.toLocaleLowerCase().includes('forbidden')
+      type.includes('forbidden')
     ) {
-      status = 403;
       errorType = ErrorType.FORBIDDEN;
+      status = 403;
     } else if (
       error instanceof NotFoundException ||
-      error instanceof WsNotFoundException ||
-      message.toLocaleLowerCase().includes('not found')
+      error instanceof WsNotFoundException
     ) {
       errorType = ErrorType.NOT_FOUND;
-      status = 404;
     } else if (
       error instanceof ConflictException ||
-      error instanceof WsConflictException ||
-      message.toLocaleLowerCase().includes('conflict')
+      error instanceof WsConflictException
     ) {
-      status = 409;
       errorType = ErrorType.CONFLICT;
     } else if (
       error instanceof InternalServerErrorException ||
-      error instanceof WsInternalServerErrorException ||
-      message.toLocaleLowerCase().includes('internal')
+      error instanceof WsInternalServerErrorException
     ) {
       errorType = ErrorType.INTERNAL;
       isOperational = false;
@@ -236,6 +232,7 @@ export class ErrorCustom extends Error {
       details: {
         metadata,
         code: errorType,
+        stack: error.stack,
       },
     });
   }

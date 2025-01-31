@@ -26,6 +26,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { TwilioModule } from 'nestjs-twilio';
 import { ServerModule } from './modules/server/server.module';
 import { TaskSchedulerModule } from '@src/common/schedule/schedule.module';
+import { BullModule } from './modules/Bull/Bull.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { TaskSchedulerModule } from '@src/common/schedule/schedule.module';
       inject: [ConfigService],
       isGlobal: true,
     }),
+    BullModule,
     TaskSchedulerModule,
     AuthModule,
     ServerModule,

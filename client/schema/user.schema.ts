@@ -1,7 +1,7 @@
 import { channelType } from "@/interfaces/server.interface";
 import * as z from "zod";
 
-const kb = 1024 * 1024;
+const mb = 1024 * 1024;
 export const maxSize = 10;
 const sendFileMaxSize = 1024;
 
@@ -56,7 +56,7 @@ export const ServerSchema = z.object({
                     return false;
                 }
 
-                return files[0].size < maxSize * kb;
+                return files[0].size < maxSize * mb;
             },
             {
                 message: `File can't be bigger than ${maxSize}MB.`,
@@ -83,6 +83,39 @@ export const ChatInputSchema = z.object({
     }),
 });
 
+export const EditMessageFile = z.object({
+    files: z
+        .any()
+        .refine(
+            (value) => {
+                const isFileList = value instanceof FileList;
+                if (
+                    !value ||
+                    !isFileList ||
+                    (isFileList && value.length === 0)
+                ) {
+                    return false;
+                }
+                return value as FileList;
+            },
+            { message: "Please upload a file." }
+        )
+        .refine(
+            (files: FileList) => {
+                if (!(files instanceof FileList)) {
+                    return false;
+                }
+
+                return files[0].size < sendFileMaxSize * mb;
+            },
+            {
+                message: `File can't be bigger than ${Math.floor(
+                    sendFileMaxSize / 1024
+                )}MB.`,
+            }
+        ),
+});
+
 export const SendFileSchema = z.object({
     file: z
         .any()
@@ -107,7 +140,7 @@ export const SendFileSchema = z.object({
                     return false;
                 }
 
-                return files[0]?.size < sendFileMaxSize * kb;
+                return files[0]?.size < sendFileMaxSize * mb;
             },
             {
                 message: `File can't be bigger than ${

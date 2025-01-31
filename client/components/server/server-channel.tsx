@@ -12,7 +12,7 @@ import { Edit, Hash, Lock, Mic, Trash, Video } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { ActionTooltip } from "../action.tooltip";
 import { useModal } from "@/hooks/use-modal-store";
-import { MouseEvent } from "react";
+import { memo, MouseEvent } from "react";
 import Link from "next/link";
 import { useData } from "../providers/data-provider";
 
@@ -24,7 +24,6 @@ interface IServerChannelProps {
 
 const iconMap = {
     [channelType.TEXT]: Hash,
-    [channelType.AUDIO]: Mic,
     [channelType.VIDEO]: Video,
 };
 
@@ -99,4 +98,4 @@ const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
     );
 };
 
-export default ServerChannel;
+export default memo(ServerChannel);

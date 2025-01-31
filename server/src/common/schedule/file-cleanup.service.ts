@@ -25,9 +25,9 @@ export class FileCleanupService implements OnModuleInit {
       this.logger.debug(`Found ${totalFiles} files to delete during startup.`);
 
       if (totalFiles > 0) {
-        await this.handleFilesDeleted();
+        const totalSuccessfullyDeletedIds = await this.handleFilesDeleted();
         this.logger.debug(
-          `Startup file cleanup completed. Deleted ${totalFiles} files.`
+          `Startup file cleanup completed. Deleted ${totalSuccessfullyDeletedIds} files.`
         );
       } else {
         this.logger.debug('No files to delete during startup.');
@@ -53,6 +53,7 @@ export class FileCleanupService implements OnModuleInit {
     );
 
     let offset = 0;
+    let totalSuccessfullyDeletedIds: number = 0;
 
     while (true) {
       const filesDeleted = await this.db.tempStoreFile.findMany({
@@ -62,47 +63,61 @@ export class FileCleanupService implements OnModuleInit {
 
       if (filesDeleted.length === 0) break;
 
-      const promisesFileDeleted: Promise<any>[] = [];
+      const promisesFileDeleted: { id: string; status: Promise<any> }[] = [];
 
       for (const fileInfo of filesDeleted) {
         if (fileInfo.storageType === StorageType.CLOUDINARY) {
-          promisesFileDeleted.push(
-            this.cloudinaryService.Destroy(
+          promisesFileDeleted.push({
+            id: fileInfo.id,
+            status: this.cloudinaryService.Destroy(
               fileInfo.fileId,
               fileInfo.messageType.toLocaleLowerCase()
-            )
-          );
+            ),
+          });
         } else if (fileInfo.storageType === StorageType.DROPBOX) {
-          promisesFileDeleted.push(
-            this.dropboxService.deleteFile(fileInfo.fileId)
-          );
+          promisesFileDeleted.push({
+            id: fileInfo.id,
+            status: this.dropboxService.deleteFile(fileInfo.fileId),
+          });
         }
       }
 
-      await Promise.all(promisesFileDeleted);
+      const results = await Promise.allSettled(
+        promisesFileDeleted.map((p) => p.status)
+      );
 
-      await this.db.tempStoreFile.deleteMany({
-        where: {
-          id: {
-            in: filesDeleted.map((f) => f.id),
+      const successfullyDeletedIds = promisesFileDeleted
+        .filter((_, index) => results[index].status === 'fulfilled')
+        .map((file) => file.id);
+
+      if (successfullyDeletedIds.length > 0) {
+        await this.db.tempStoreFile.deleteMany({
+          where: {
+            id: {
+              in: successfullyDeletedIds,
+            },
           },
-        },
-      });
+        });
+      }
 
       this.logger.debug(
-        `Batch processed: Deleted ${filesDeleted.length} files. Offset: ${offset}`
+        `Batch processed: Successfully deleted ${successfullyDeletedIds.length} files. Offset: ${offset}`
       );
 
       offset += filesDeleted.length;
+      totalSuccessfullyDeletedIds += successfullyDeletedIds.length;
     }
 
-    this.logger.debug('All files deleted successfully.');
+    return totalSuccessfullyDeletedIds;
   }
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   public async handleCron() {
-    this.logger.log('Running file cleanup task at midnight...');
-    await this.handleFilesDeleted();
-    this.logger.log('Midnight cleanup task completed.');
+    this.logger.debug('Running file cleanup task at midnight...');
+    const totalSuccessfullyDeletedIds = await this.handleFilesDeleted();
+    this.logger.debug('Midnight cleanup task completed.');
+    this.logger.debug(
+      `file cleanup completed. Deleted ${totalSuccessfullyDeletedIds} files.`
+    );
   }
 }

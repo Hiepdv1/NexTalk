@@ -6,6 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "prebuild": "rimraf dist appLogs",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@clerk/clerk-sdk-node": "^5.0.38",
+    "@nestjs/bullmq": "11.0.1",
     "@nestjs/cache-manager": "^2.3.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.2.3",
@@ -34,6 +36,7 @@
     "@nestjs/websockets": "^10.4.8",
     "@prisma/client": "^5.22.0",
     "axios": "^1.7.7",
+    "bullmq": "5.37.0",
     "cache-manager": "^5.7.6",
     "cache-manager-redis-store": "^3.0.1",
     "class-transformer": "^0.5.1",
@@ -77,6 +80,7 @@
     "node-pre-gyp": "^0.17.0",
     "prettier": "^3.0.0",
     "prisma": "^5.22.0",
+    "rimraf": "6.0.1",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
     "ts-jest": "^29.1.0",

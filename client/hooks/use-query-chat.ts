@@ -7,20 +7,19 @@ import { decrypt } from "@/utility/app.utility";
 import { useEffect, useState } from "react";
 
 interface IChatQueryProps {
-    query: Record<string, any>;
     apiUrl: string;
     message: Record<string, any>;
 }
 
-const useQueryChat = ({ apiUrl, query, message }: IChatQueryProps) => {
+const useQueryChat = ({ apiUrl, message }: IChatQueryProps) => {
     const { isConnected, sendMessage, socket } = useSocket();
     const { setMessageArray, servers } = useData();
     const params = useParams();
 
     const getServerAndChannel = () => {
-        const server = servers.find((s) => s.id === query.serverId);
+        const server = servers.find((s) => s.id === message.serverId);
         if (!server) return null;
-        const channel = server.channels.find((c) => c.id === query.channelId);
+        const channel = server.channels.find((c) => c.id === message.channelId);
         if (!channel) return null;
         return { server, channel };
     };
@@ -40,33 +39,27 @@ const useQueryChat = ({ apiUrl, query, message }: IChatQueryProps) => {
                 ? channel.messages[channel.messages.length - 1].id
                 : null;
 
-        sendMessage(apiUrl, { ...message, page: pageParam }, "POST", {
-            ...query,
-            cursor,
+        sendMessage(apiUrl, { ...message, page: pageParam, cursor }, "POST", {
+            ...message,
         });
 
         return new Promise((resolve, reject) => {
-            socket.once(
-                `messages:server:${query.serverId}:channel:${query.channelId}`,
-                (response) => {
-                    if (!response) {
-                        reject(new Error("No response from server"));
-                        return;
-                    }
-
-                    const { messages, nextCursor } = JSON.parse(
-                        decrypt(response)
-                    );
-
-                    setMessageArray({
-                        serverId: query.serverId,
-                        channelId: query.channelId,
-                        messages,
-                    });
-
-                    resolve({ nextPage: nextCursor ?? false });
+            socket.once("res-fetch-messages", (response) => {
+                if (!response) {
+                    reject(new Error("No response from server"));
+                    return;
                 }
-            );
+
+                const { messages, nextCursor } = JSON.parse(decrypt(response));
+
+                setMessageArray({
+                    serverId: message.serverId,
+                    channelId: message.channelId,
+                    messages,
+                });
+
+                resolve({ nextPage: nextCursor ?? false });
+            });
         });
     };
 

@@ -1,13 +1,9 @@
 "use client";
-import { useUser } from "@clerk/nextjs";
-import { useEffect, useState } from "react";
-import { RequestGetFirstServer } from "@/API";
 import InitialModal from "@/components/modals/initial-modal";
 import { useRouter } from "next/navigation";
-import { Separator } from "@/components/ui/separator";
 import { useData } from "@/components/providers/data-provider";
-
-const SetupPage = () => {
+import { useEffect } from "react";
+const setup = () => {
     const { profile, servers } = useData();
     const router = useRouter();
 
@@ -22,4 +18,4 @@ const SetupPage = () => {
     return <InitialModal userId={profile?.userId} />;
 };
 
-export default SetupPage;
+export default setup;

@@ -16,10 +16,10 @@ interface ISize {
 }
 
 type Folder =
-  | 'Discord'
-  | 'Discord/videos'
-  | 'Discord/images'
-  | 'Discord/ServerImages';
+  | 'NexTalk'
+  | 'NexTalk/videos'
+  | 'NexTalk/images'
+  | 'NexTalk/ServerImages';
 
 @Injectable()
 export class CloudinaryService {

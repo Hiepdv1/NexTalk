@@ -1,17 +1,17 @@
 import { memo } from "react";
 
 interface IVideoChatProps {
-    path?: string | null;
-    posterUrl?: string;
+    posterUrl: string;
+    videoUrl: string;
 }
 
-const VideoChat = ({ path, posterUrl }: IVideoChatProps) => {
-    const arrayPath = path?.split(".");
+const VideoChat = ({ videoUrl, posterUrl }: IVideoChatProps) => {
+    const arrayPath = videoUrl?.split(".");
     arrayPath?.pop();
 
     return (
         <div className="w-96 h-full max-w-96 my-2 max-sm:w-full max-sm:h-full">
-            <video poster={posterUrl} preload="none" controls>
+            <video key={videoUrl} poster={posterUrl} preload="none" controls>
                 <source src={`${arrayPath?.join(".")}.mp4`} type="video/mp4" />
                 <source
                     src={`${arrayPath?.join(".")}.webm`}

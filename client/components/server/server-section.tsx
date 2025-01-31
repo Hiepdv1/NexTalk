@@ -4,6 +4,7 @@ import { channelType, IResGetChannelServer, MemberRole } from "@/interfaces";
 import { ActionTooltip } from "../action.tooltip";
 import { Plus, Settings } from "lucide-react";
 import { useModal } from "@/hooks/use-modal-store";
+import { memo } from "react";
 
 interface IServerSectionProps {
     label: string;
@@ -58,4 +59,4 @@ const ServerSection = ({
     );
 };
 
-export default ServerSection;
+export default memo(ServerSection);

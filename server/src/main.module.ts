@@ -11,6 +11,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate }),
+
     ScheduleModule.forRoot(),
     PostgresDatabaseProviderModule,
     NestCloudinaryClientModule,

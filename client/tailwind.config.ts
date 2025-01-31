@@ -26,6 +26,9 @@ const config: Config = {
                 primary: {
                     DEFAULT: "hsl(var(--primary))",
                     foreground: "hsl(var(--primary-foreground))",
+                    50: "#f0f9ff",
+                    100: "#e0f2fe",
+                    900: "#0c4a6e",
                 },
                 secondary: {
                     DEFAULT: "hsl(var(--secondary))",
@@ -81,6 +84,20 @@ const config: Config = {
                     from: { transform: "rotate(0deg)" },
                     to: { transform: "rotate(360deg)" },
                 },
+                blob: {
+                    "0%": {
+                        transform: "translate(0px, 0px) scale(1)",
+                    },
+                    "33%": {
+                        transform: "translate(30px, -50px) scale(1.1)",
+                    },
+                    "66%": {
+                        transform: "translate(-20px, 20px) scale(0.9)",
+                    },
+                    "100%": {
+                        transform: "translate(0px, 0px) scale(1)",
+                    },
+                },
             },
             animation: {
                 "accordion-down": "accordion-down 0.2s ease-out",
@@ -88,10 +105,14 @@ const config: Config = {
                 float: "float 6s infinite ease-in-out",
                 "spin-slow": "spin-slow 8s linear infinite",
                 fade: "fade 2s infinite ease-in-out",
+                blob: "blob 7s infinite",
             },
         },
     },
-    plugins: [require("tailwindcss-animate")],
+    plugins: [
+        require("tailwindcss-animate"),
+        require("tailwind-scrollbar-hide"),
+    ],
 };
 
 export default config;

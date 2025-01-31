@@ -11,7 +11,6 @@ export interface IResChannels {
 export enum channelType {
     "TEXT" = "TEXT",
     "VIDEO" = "VIDEO",
-    "AUDIO" = "AUDIO",
 }
 
 export enum MemberRole {
@@ -26,6 +25,7 @@ export interface IResMembers {
     profileId: string;
     serverId: string;
     profile: ICreateUserData;
+    isOnline: boolean;
 }
 
 export interface IProfile {
@@ -104,8 +104,16 @@ export interface IMember {
     directMessages: IDirectMessage[];
     conversationsInitiated: IConversation[];
     conversationsReceived: IConversation[];
+    isOnline: boolean;
     createdAt: Date;
     updatedAt: Date;
+}
+
+export interface IUserChannelRead {
+    id: string;
+    profileId: string;
+    channel_id: string;
+    last_read_at: Date;
 }
 
 export interface IChannel {
@@ -116,6 +124,7 @@ export interface IChannel {
     serverId: string;
     members: IMember[];
     messages: IMessage[];
+    userChannelRead: IUserChannelRead[];
     createdAt: Date;
     updatedAt: Date;
 }
@@ -141,6 +150,7 @@ export interface IMessage {
     deleted: boolean;
     createdAt: Date;
     updatedAt: Date;
+    progress?: number;
 }
 
 export interface IDirectMessage {
@@ -156,6 +166,7 @@ export interface IDirectMessage {
     createdAt: Date;
     updatedAt: Date;
     deleted: boolean;
+    progress?: number;
 }
 
 export interface IConversation {

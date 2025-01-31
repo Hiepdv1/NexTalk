@@ -19,8 +19,16 @@ import { SocketService } from './services/socket.service';
 import { MediaGateway } from './gateway/Media.gateway';
 import { CallService } from './services/callService.service';
 import { PostgresDatabaseProviderModule } from '@src/providers/database/postgres/provider.module';
+import { BullModule } from '../Bull/Bull.module';
+import { MemberModule } from '../members/member.module';
+import { ChannelReadModule } from '../channelRead/channelRead.module';
 @Module({
-  imports: [PostgresDatabaseProviderModule],
+  imports: [
+    PostgresDatabaseProviderModule,
+    BullModule,
+    MemberModule,
+    ChannelReadModule,
+  ],
   providers: [
     SocketService,
     MediaGateway,

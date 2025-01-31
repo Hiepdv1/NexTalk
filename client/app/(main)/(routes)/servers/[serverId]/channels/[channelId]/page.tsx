@@ -4,6 +4,7 @@ import ChatHeader from "@/components/chat/chat-header";
 import ChatInput from "@/components/chat/chat-input";
 import ChatMessage from "@/components/chat/chat-message";
 import { useData } from "@/components/providers/data-provider";
+import { useSocket } from "@/components/providers/socket-provider";
 import VideoCall from "@/components/videoCall/video-call";
 import { channelType } from "@/interfaces";
 import { useRouter } from "next/navigation";
@@ -18,6 +19,7 @@ interface IChannelIdPageProps {
 
 const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
     const { servers, profile, conversations, isInteracted } = useData();
+    const { sendMessage } = useSocket();
     const router = useRouter();
 
     const server = servers.find((server) => server.id === params.serverId);
@@ -30,16 +32,12 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
         (member) => member.profileId === profile?.id
     );
 
-    if (!server || !channel || !profile || !member) {
+    if (!server || !channel || !profile || !member || !sendMessage) {
         return null;
     }
 
     useEffect(() => {
-        if (
-            (channel.type === channelType.AUDIO ||
-                channel.type === channelType.VIDEO) &&
-            !isInteracted.current
-        ) {
+        if (channel.type === channelType.VIDEO && !isInteracted.current) {
             router.prefetch(
                 `/servers/${servers[0].id}/channels/${servers[0].channels[0].id}`
             );
@@ -49,11 +47,11 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
         }
     }, []);
 
-    if (
-        (channel.type === channelType.AUDIO ||
-            channel.type === channelType.VIDEO) &&
-        !isInteracted.current
-    ) {
+    useEffect(() => {
+        sendMessage("channel-read", { channelId: params.channelId }, "POST");
+    }, []);
+
+    if (channel.type === channelType.VIDEO && !isInteracted.current) {
         return null;
     }
 

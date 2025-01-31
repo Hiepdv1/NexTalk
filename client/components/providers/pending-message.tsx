@@ -31,6 +31,7 @@ interface PendingMessagesContextType {
     addPendingMessage: (data: IPendingMessage) => void;
     removePendingMessageByTimestamp: (timestamp: number) => void;
     updatePendingMessage: (data: Partial<IPendingMessage>) => void;
+    updatePendingDirectMessages: (data: Partial<IPendingMessage>) => void;
     handleAddPendingDirectMessage: (data: IPendingDirectMessage) => void;
     handelRemovePendingDirectMessages: (timestamp: number) => void;
 }
@@ -75,19 +76,18 @@ export const PendingMessagesProvider: React.FC<{
     }, []);
 
     const handleAddPendingDirectMessage = (data: IPendingDirectMessage) => {
-        setPendingDirectMessages((prevDirectMessages) => {
-            const cloneDirectMessage = [...prevDirectMessages];
+        setPendingDirectMessages((prevDirectMessages) => [
+            ...prevDirectMessages,
+            { ...data, progressUploaded: 0 },
+        ]);
+    };
 
-            const conversation = cloneDirectMessage.find(
-                (con) => con.conversationId === data.conversationId
-            );
-
-            if (!conversation) return prevDirectMessages;
-
-            cloneDirectMessage.push(data);
-
-            return cloneDirectMessage;
-        });
+    const updatePendingDirectMessages = (data: Partial<IPendingMessage>) => {
+        setPendingDirectMessages((prev) =>
+            prev.map((msg) =>
+                msg.timestamp === data.timestamp ? { ...msg, ...data } : msg
+            )
+        );
     };
 
     const handelRemovePendingDirectMessages = (timestamp: number) => {
@@ -106,6 +106,7 @@ export const PendingMessagesProvider: React.FC<{
                 addPendingMessage,
                 removePendingMessageByTimestamp,
                 updatePendingMessage,
+                updatePendingDirectMessages,
                 handleAddPendingDirectMessage,
                 handelRemovePendingDirectMessages,
             }}

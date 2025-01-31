@@ -11,6 +11,7 @@ interface IMediaSteamComponentProps {
     isVideoEnabling: boolean;
     isAudioEnabling: boolean;
     isScreenShare: boolean;
+    className?: string;
 }
 
 const MediaStreamComponent = ({
@@ -20,6 +21,7 @@ const MediaStreamComponent = ({
     isAudioEnabling,
     isVideoEnabling,
     isScreenShare,
+    className,
 }: IMediaSteamComponentProps) => {
     const handleStreamProduder = (stream: MediaStream) => {
         const videoTrack = stream.getVideoTracks();
@@ -74,9 +76,9 @@ const MediaStreamComponent = ({
         <div
             className={`${
                 isScreenShare
-                    ? "absolute w-1/3 h-1/6 top-0 right-0 md:relative  md:w-auto md:h-1/4"
-                    : "w-full h-1/3 sm:w-full sm:h-[415px] md:w-[480px] md:h-[320px] relative rounded-lg overflow-hidden"
-            } mb-2`}
+                    ? "absolute w-1/3 md:h-[24.6%] top-0 right-0 md:relative md:w-auto md:mb-1"
+                    : "w-full h-1/2 sm:w-full sm:h-[415px] md:w-[33%] md:h-1/3 relative rounded-lg overflow-hidden"
+            } ${className}`}
         >
             {streams.map((stream) => {
                 return handleStreamProduder(stream);
@@ -117,26 +119,5 @@ const MediaStreamComponent = ({
         </div>
     );
 };
-
-// const areEqual = (
-//     prevProps: IMediaSteamComponentProps,
-//     nextProps: IMediaSteamComponentProps
-// ) => {
-//     if (prevProps.streams.length !== nextProps.streams.length) return false;
-
-//     for (let i = 0; i < prevProps.streams.length; i++) {
-//         if (prevProps.streams[i].id !== nextProps.streams[i].id) {
-//             return false;
-//         }
-//     }
-
-//     return (
-//         prevProps.streams === nextProps.streams &&
-//         prevProps.isLocal === nextProps.isLocal &&
-//         prevProps.isAudioEnabling === nextProps.isAudioEnabling &&
-//         prevProps.isVideoEnabling === nextProps.isVideoEnabling &&
-//         prevProps.isScreenShare === nextProps.isScreenShare
-//     );
-// };
 
 export default memo(MediaStreamComponent);
