@@ -22,6 +22,7 @@ import { PostgresDatabaseProviderModule } from '@src/providers/database/postgres
 import { BullModule } from '../Bull/Bull.module';
 import { MemberModule } from '../members/member.module';
 import { ChannelReadModule } from '../channelRead/channelRead.module';
+import { ChannelReadQueueEventsProvider } from '../Bull/events/bull-events.provider';
 @Module({
   imports: [
     PostgresDatabaseProviderModule,
@@ -50,6 +51,7 @@ import { ChannelReadModule } from '../channelRead/channelRead.module';
     RedisCacheService,
     ConversationCacheService,
     CallService,
+    ChannelReadQueueEventsProvider,
   ],
   exports: [
     MediaGateway,
@@ -70,6 +72,7 @@ import { ChannelReadModule } from '../channelRead/channelRead.module';
     ServerCacheService,
     RedisCacheService,
     ConversationCacheService,
+    ChannelReadQueueEventsProvider,
     CallService,
   ],
 })

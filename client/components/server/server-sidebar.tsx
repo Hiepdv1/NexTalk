@@ -37,6 +37,7 @@ const roleIconMap = {
 const ServerSideBar = ({ serverId }: { serverId: string }) => {
     const { userId } = useAuth();
     const { servers } = useData();
+    const { unreadMessageCountMap } = useData();
     const [voiceStatus, setVoiceStatus] = useState("Voice Connected");
     const [isVoiceMuted, setIsVoiceMuted] = useState(false);
 
@@ -120,14 +121,24 @@ const ServerSideBar = ({ serverId }: { serverId: string }) => {
                                 server={serverData}
                             />
                             <div className="mt-1 space-y-0.5">
-                                {textChannels.map((channel) => (
-                                    <ServerChannel
-                                        key={channel.id}
-                                        channel={channel}
-                                        role={currentUser?.role}
-                                        server={serverData}
-                                    />
-                                ))}
+                                {textChannels.map((channel) => {
+                                    const serverUnread =
+                                        unreadMessageCountMap.get(
+                                            channel.serverId
+                                        );
+
+                                    const totalUnread =
+                                        serverUnread?.get(channel.id) || 0;
+                                    return (
+                                        <ServerChannel
+                                            key={channel.id}
+                                            channel={channel}
+                                            role={currentUser?.role}
+                                            server={serverData}
+                                            totalUnread={totalUnread}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -142,14 +153,25 @@ const ServerSideBar = ({ serverId }: { serverId: string }) => {
                                 server={serverData}
                             />
                             <div className="mt-1 space-y-0.5">
-                                {videoChannels.map((channel) => (
-                                    <ServerChannel
-                                        key={channel.id}
-                                        channel={channel}
-                                        role={currentUser?.role}
-                                        server={serverData}
-                                    />
-                                ))}
+                                {videoChannels.map((channel) => {
+                                    const serverUnread =
+                                        unreadMessageCountMap.get(
+                                            channel.serverId
+                                        );
+
+                                    const totalUnread =
+                                        serverUnread?.get(channel.id) || 0;
+
+                                    return (
+                                        <ServerChannel
+                                            key={channel.id}
+                                            channel={channel}
+                                            role={currentUser?.role}
+                                            server={serverData}
+                                            totalUnread={totalUnread}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

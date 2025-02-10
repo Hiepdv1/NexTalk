@@ -9,7 +9,12 @@ import React, {
 } from "react";
 import { useSocket } from "./socket-provider";
 import { decrypt } from "@/utility/app.utility";
-import { ChannelMessageUpdatedGlobal } from "@/interfaces";
+import {
+    ChannelMessageUpdatedGlobal,
+    IChannel,
+    IMember,
+    MessageType,
+} from "@/interfaces";
 import { useData } from "./data-provider";
 import { usePendingMessages } from "./pending-message";
 import { usePathname } from "next/navigation";
@@ -47,7 +52,7 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
 
     const [listeners, setListeners] = useState<EventListenerProps[]>([]);
     const { handelRemovePendingDirectMessages } = usePendingMessages();
-    const { socket } = useSocket();
+    const { socket, sendMessage } = useSocket();
 
     const {
         handleEditMessage,
@@ -58,8 +63,13 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         handleAddConversation,
         handleUpdateServer,
         handleDeleteServer,
+        setMessage,
         servers,
+        activeChannel,
+        handleUpdatedNotifications,
     } = useData();
+
+    const { removePendingMessageByTimestamp } = usePendingMessages();
 
     const router = useRouter();
 
@@ -171,8 +181,33 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         }
     };
 
+    const handleAddMessageChannel = (message: string) => {
+        const { serverId, channelId, timestamp, ...rest } = JSON.parse(
+            decrypt(message)
+        );
+        setMessage(serverId, channelId, rest);
+        removePendingMessageByTimestamp(timestamp);
+        if (activeChannel.current && sendMessage) {
+            sendMessage("channel-read", { channelId, serverId }, "POST");
+            console.log("Sending message channel-read ");
+        }
+    };
+
+    const handleUpdatedChannelReaded = (data: {
+        id: string;
+        profileId: string;
+        last_read_at: Date;
+        channel: IChannel;
+        channel_id: string;
+    }) => {
+        console.log("Channel readed: ", data);
+        handleUpdatedNotifications(data);
+    };
+
     const setupListeningGlobal = () => {
+        addListener("channel-readed", handleUpdatedChannelReaded);
         addListener("chat:message:update:global", handleUpdateMessageGlobal);
+        addListener("chat:message:channel:global", handleAddMessageChannel);
         addListener(
             "chat:conversation:message:global",
             handleIncomingDirectMessage
@@ -184,6 +219,7 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         addListener("channel:deleted:global", handleUpdateChannelDeleted);
         addListener("conversation:updated:global", handleGetConversation);
         addListener("SERVER:DELETED:GLOBAL", handleDeletedServer);
+        addListener("chat:channels:messages", handleAddMessageChannel);
     };
 
     useEffect(() => {
@@ -192,7 +228,7 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         return () => {
             removeAllListeners();
         };
-    }, [socket, servers]);
+    }, [socket, servers, sendMessage]);
 
     return (
         <SocketEventContext.Provider

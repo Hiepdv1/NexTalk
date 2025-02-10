@@ -116,4 +116,8 @@ export class ChannelReadDto {
   @IsNotEmpty()
   @IsString()
   channelId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  serverId: string;
 }

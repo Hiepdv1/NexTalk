@@ -94,6 +94,14 @@ export interface IServer {
     updatedAt: Date;
 }
 
+export interface INotification {
+    id: string;
+    profileId: string;
+    channel_id: string;
+    channel: IChannel;
+    last_read_at: Date;
+}
+
 export interface IMember {
     id: string;
     role: MemberRole;
@@ -122,6 +130,7 @@ export interface IChannel {
     type: channelType;
     profileId: string;
     serverId: string;
+    server: IServer;
     members: IMember[];
     messages: IMessage[];
     userChannelRead: IUserChannelRead[];

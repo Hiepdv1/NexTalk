@@ -14,6 +14,7 @@ import { AuthWsMiddleware } from 'src/common/middlewares/AuthWs.middleware';
 import {
   BadRequestException,
   HttpException,
+  Inject,
   Logger,
   NotFoundException,
   OnModuleInit,
@@ -66,7 +67,7 @@ import {
   MessageChannelModifyDto,
   MessageModifyMethod,
 } from '../dto/channel.dto';
-import { Queue } from 'bullmq';
+import { Queue, QueueEvents } from 'bullmq';
 import {
   CreateDirectMessageDto,
   FetchConversationDto,
@@ -101,7 +102,6 @@ export class MediaGateway
 
   private pingInterval: NodeJS.Timeout;
   private pingTimeout: NodeJS.Timeout;
-  private readonly debounceThreshold = 5000;
 
   constructor(
     private readonly socketService: SocketService,
@@ -120,6 +120,8 @@ export class MediaGateway
     @InjectQueue('ChannelMessage') private readonly channelMessageQueue: Queue,
     @InjectQueue('DirectMessage') private readonly directMessageQueue: Queue,
     @InjectQueue('ChannelRead') private readonly channelReadQueue: Queue,
+    @Inject('CHANNEL_READ_QUEUE_EVENTS')
+    private readonly channelReadQueueEvents: QueueEvents,
 
     private readonly callService: CallService
   ) {
@@ -226,6 +228,7 @@ export class MediaGateway
       channelId: channelId,
       memberId: memberId,
       type: MessageType.TEXT,
+      deleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -235,11 +238,12 @@ export class MediaGateway
         ...message,
         member,
         timestamp,
+        serverId: server.id,
       }),
       this.SECRET_KEY
     );
 
-    this.server.emit(`chat:${channelId}:messages`, encryptMessage);
+    this.server.emit('chat:message:channel:global', encryptMessage);
 
     this.channelMessageQueue.add(
       'ChannelMessage',
@@ -760,34 +764,46 @@ export class MediaGateway
     @MessageBody(new DecryptAndValidatePipe(ChannelReadDto))
     values: ChannelReadDto
   ) {
-    const { channelId } = values;
+    const { channelId, serverId } = values;
 
-    const cacheKey = `channel-read:${socket.userId}:${channelId}`;
-    const lastReadTimestamp: number = await this.redisCache.getCache(cacheKey);
-    const now = Date.now();
+    const [profile, serverCache] = await Promise.all([
+      this.authService.findUserById(socket.userId),
+      this.serverCacheService.getServerCache(serverId),
+    ]);
 
-    if (lastReadTimestamp && now - lastReadTimestamp < this.debounceThreshold) {
-      this.logger.debug(
-        `Debounce: Skip updating channel-read for user ${socket.userId} in channel ${channelId}`
-      );
-      return;
+    let server = serverCache;
+
+    if (!server) {
+      const existingServer = await this.serverService.getServerById(serverId);
+
+      if (!server)
+        throw new WsNotFoundException(
+          `The serverId ${server.id} does not exist`
+        );
+
+      this.serverCacheService.setAndOverrideServerCache(serverId, {
+        ...server,
+        members: existingServer.members.map(
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          ({ conversationsInitiated, conversationsReceived, ...rest }) => rest
+        ),
+      });
+      server = existingServer;
     }
 
-    const profile = await this.authService.findUserById(socket.userId);
+    const last_read_at = new Date();
 
-    await this.redisCache.setCache(
-      cacheKey,
-      now,
-      this.debounceThreshold / 1000
-    );
+    const payload = {
+      profileId: profile.id,
+      channel_id: channelId,
+      last_read_at,
+      channel: server.channels,
+    };
 
     this.channelReadQueue.add(
       'ChannelRead',
       {
-        values: {
-          profileId: profile.id,
-          channel_id: channelId,
-        },
+        values: payload,
       },
       {
         removeOnComplete: true,
@@ -799,6 +815,8 @@ export class MediaGateway
         },
       }
     );
+
+    socket.emit('channel-readed', payload);
   }
 
   @UseGuards(WsCombinedGuard)

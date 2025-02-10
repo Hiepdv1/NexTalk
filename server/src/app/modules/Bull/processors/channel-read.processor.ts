@@ -19,10 +19,17 @@ export class ChannelReadProcessor extends WorkerHost {
   }: {
     values: Prisma.UserChannelReadCreateManyInput;
   }) {
-    return await this.db.userChannelRead.create({
-      data: {
-        ...values,
+    return await this.db.userChannelRead.upsert({
+      where: {
+        unique_profile_channel: {
+          profileId: values.profileId,
+          channel_id: values.channel_id,
+        },
       },
+      update: {
+        last_read_at: values.last_read_at,
+      },
+      create: values,
     });
   }
 

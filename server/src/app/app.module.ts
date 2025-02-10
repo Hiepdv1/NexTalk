@@ -27,6 +27,7 @@ import { TwilioModule } from 'nestjs-twilio';
 import { ServerModule } from './modules/server/server.module';
 import { TaskSchedulerModule } from '@src/common/schedule/schedule.module';
 import { BullModule } from './modules/Bull/Bull.module';
+import { ChannelReadModule } from './modules/channelRead/channelRead.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { BullModule } from './modules/Bull/Bull.module';
     TaskSchedulerModule,
     AuthModule,
     ServerModule,
+    ChannelReadModule,
     ChannelModule,
     ConversationModule,
     SocketModule,

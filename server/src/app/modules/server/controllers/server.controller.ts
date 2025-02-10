@@ -194,7 +194,7 @@ export class ServerController {
 
       const channels = server.channels.map((channel) => {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { messages, userChannelRead, ...rest } = channel;
+        const { messages, ...rest } = channel;
         return rest;
       });
 

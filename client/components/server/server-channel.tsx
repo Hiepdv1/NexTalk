@@ -20,6 +20,7 @@ interface IServerChannelProps {
     channel: IChannel;
     role?: MemberRole;
     server: IResGetChannelServer;
+    totalUnread?: number;
 }
 
 const iconMap = {
@@ -27,7 +28,12 @@ const iconMap = {
     [channelType.VIDEO]: Video,
 };
 
-const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
+const ServerChannel = ({
+    channel,
+    server,
+    role,
+    totalUnread,
+}: IServerChannelProps) => {
     const { isInteracted } = useData();
     const { onOpen } = useModal();
     const params = useParams();
@@ -58,7 +64,7 @@ const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
         <button
             onClick={handleNavigate}
             className={cn(
-                "group px-2 py-2 rounded-md flex items-center gap-x-2 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition mb-1",
+                "group px-2 py-2 rounded-md flex items-center gap-x-2 w-full hover:bg-zinc-700/10 dark:hover:bg-zinc-700/50 transition mb-1 relative",
                 params?.channelId === channel.id &&
                     "bg-zinc-700/20 dark:bg-zinc-700"
             )}
@@ -92,6 +98,12 @@ const ServerChannel = ({ channel, server, role }: IServerChannelProps) => {
                             className="hidden group-hover:block w-4 h-4 text-zinc-500 hover:text-zinc-600 dark:text-zinc-400 dark:hover:text-zinc-300 transition"
                         />
                     </ActionTooltip>
+                </div>
+            )}
+
+            {!!totalUnread && (
+                <div className="absolute -top-1 left-0 bg-red-500 text-white text-xs min-w-[18px] h-[18px] rounded-full flex items-center justify-center p-1">
+                    {totalUnread > 99 ? "99+" : totalUnread}
                 </div>
             )}
         </button>

@@ -5,6 +5,7 @@ import { BullConfig } from './configs/bull.config';
 import { Processors } from './processors';
 import { queues } from './queues';
 import { PostgresDatabaseProviderModule } from '@src/providers/database/postgres/provider.module';
+import bullEvents from './events/bull-events.provider';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { PostgresDatabaseProviderModule } from '@src/providers/database/postgres
       })
     ),
   ],
-  providers: [...Processors],
+  providers: [...bullEvents, ...Processors],
   exports: [NestBullModule, ...Processors],
 })
 export class BullModule {}

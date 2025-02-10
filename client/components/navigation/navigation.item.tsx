@@ -11,9 +11,15 @@ interface INavigationItemProps {
     id: string;
     imageUrl: string;
     name: string;
+    totalUnread?: number;
 }
 
-const NavigationItem = ({ id, imageUrl, name }: INavigationItemProps) => {
+const NavigationItem = ({
+    id,
+    imageUrl,
+    name,
+    totalUnread,
+}: INavigationItemProps) => {
     const params = useParams();
     const router = useRouter();
 
@@ -33,17 +39,22 @@ const NavigationItem = ({ id, imageUrl, name }: INavigationItemProps) => {
                 />
                 <div
                     className={cn(
-                        "relative group flex mx-3 w-12 h-12 rounded-3xl group-hover:rounded-2xl transition-all overflow-hidden",
+                        "relative group flex mx-3 w-12 h-12  group-hover:rounded-2xl transition-all",
                         params?.serverId === id &&
                             "bg-primary/10 text-primary rounded-2xl"
                     )}
                 >
                     <Image
-                        className="object-cover"
+                        className="object-cover rounded-2xl"
                         fill
                         alt="channel"
                         src={imageUrl}
                     />
+                    {totalUnread && totalUnread > 0 && (
+                        <div className="absolute -top-1 -right-1 bg-red-500 text-white text-xs min-w-[18px] h-[18px] rounded-full flex items-center justify-center p-1">
+                            {totalUnread > 99 ? "99+" : totalUnread}
+                        </div>
+                    )}
                 </div>
             </Link>
         </ActionTooltip>

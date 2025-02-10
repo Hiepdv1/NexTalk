@@ -11,6 +11,7 @@ import {
     MemberRole,
     IDirectMessage,
     MessageType,
+    INotification,
 } from "@/interfaces";
 import { useUser } from "@clerk/nextjs";
 import { redirect, useRouter } from "next/navigation";
@@ -24,12 +25,15 @@ import React, {
 import { usePathname } from "next/navigation";
 import { decrypt } from "@/utility/app.utility";
 import LoadingScreen from "../loadding/loadingScreen";
+import { exit } from "process";
 
 interface IDataProvider {
     servers: IServer[];
     conversations: IConversation[];
     profile: IProfile | null;
     isInteracted: React.MutableRefObject<boolean>;
+    unreadMessageCountMap: Map<string, Map<string, number>>;
+    activeChannel: React.MutableRefObject<string | null>;
 
     setProfile: (data: IProfile) => void;
     setServers: React.Dispatch<React.SetStateAction<IServer[]>>;
@@ -57,6 +61,7 @@ interface IDataProvider {
 
     handleUpdateChannel: (data: IChannel) => void;
     handleUpdateServer: (data: IServer) => void;
+    handleUpdatedNotifications: (data: INotification) => void;
 
     handleDeleteServer: (serverId: string) => void;
     handleDeleteChannel: (data: {
@@ -104,6 +109,13 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     const router = useRouter();
     const [servers, setServers] = useState<IServer[]>([]);
     const [conversations, setConversations] = useState<IConversation[]>([]);
+    const [notifications, setNotifications] = useState<INotification[]>([]);
+    const [unreadMessageCountMap, setUnreadMessageCountMap] = useState<
+        Map<string, Map<string, number>>
+    >(new Map());
+
+    const activeChannel = useRef<string | null>(null);
+
     const isInteracted = useRef<boolean>(false);
 
     const [profile, setProfile] = useState<IProfile | null>(null);
@@ -111,48 +123,104 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     const isAuthPage =
         pathname?.startsWith("/sign-in") || pathname?.startsWith("/sign-up");
 
-    useEffect(() => {
-        const fetchData = async () => {
-            const resProfile = await api.post("/user", {
-                data: {
-                    userId: user?.id.toString(),
-                    name: `${user?.firstName} ${(user?.lastName || "").trim()}`,
-                    email: user?.emailAddresses[0].emailAddress,
-                    imageUrl: user?.imageUrl,
-                },
-            });
+    const fetchData = async () => {
+        const requestProfile = api.post("/user", {
+            data: {
+                userId: user?.id.toString(),
+                name: `${user?.firstName} ${(user?.lastName || "").trim()}`,
+                email: user?.emailAddresses[0].emailAddress,
+                imageUrl: user?.imageUrl,
+            },
+        });
 
-            const resServersData = await api.get("/servers");
+        const requestNotifications = api.get("/channel-notifications");
 
-            const data = resServersData.data as string;
+        const requestServers = api.get("/servers");
 
-            const { servers } = JSON.parse(decrypt(data)) as {
-                servers: Array<IServer>;
-            };
+        const [resProfile, resServersData, resNotifications] =
+            await Promise.all([
+                requestProfile,
+                requestServers,
+                requestNotifications,
+            ]);
 
-            console.log("Initital fetched servers: ", servers);
+        const data = resServersData.data as string;
 
-            if (servers) {
-                setServers(servers as any);
-
-                const serverIds = servers.map((server) => server.id);
-
-                const res = await api.post("/conversations/by-servers", {
-                    serverIds,
-                });
-
-                const conversations = JSON.parse(decrypt(res.data));
-
-                setConversations(conversations);
-            }
-
-            setProfile(resProfile.data as any);
+        const { servers } = JSON.parse(decrypt(data)) as {
+            servers: Array<IServer>;
         };
 
+        console.log("Initital fetched servers: ", servers);
+        console.log("Initial fetched Notifications: ", resNotifications);
+
+        const serverIds = servers.map((server) => server.id);
+
+        if (servers) {
+            const res = await api.post("/conversations/by-servers", {
+                serverIds,
+            });
+
+            const conversations = JSON.parse(decrypt(res.data));
+            setConversations(conversations);
+        }
+
+        setServers((servers as any) || []);
+        setNotifications((resNotifications.data as any) || []);
+        setProfile(resProfile.data as any);
+    };
+
+    const handleCalcUnreadMessages = () => {
+        const unreadMessageCount = new Map<string, Map<string, number>>();
+        for (const notification of notifications) {
+            const server = servers.find(
+                (s) => s.id === notification.channel.serverId
+            );
+            if (server) {
+                const channel = server.channels.find(
+                    (children) => children.id === notification.channel.id
+                );
+
+                if (channel && activeChannel.current !== channel.id) {
+                    const totalUnreadMessages = channel.messages.reduce(
+                        (acc, message) => {
+                            if (
+                                new Date(message.createdAt) >
+                                    new Date(notification.last_read_at) &&
+                                notification.profileId !==
+                                    message.member.profileId
+                            ) {
+                                return (acc += 1);
+                            }
+                            return acc;
+                        },
+                        0
+                    );
+                    const existingServer = unreadMessageCount.get(server.id);
+                    if (existingServer) {
+                        existingServer.set(channel.id, totalUnreadMessages);
+                    } else {
+                        const newMap = new Map<string, number>();
+                        newMap.set(channel.id, totalUnreadMessages);
+                        unreadMessageCount.set(server.id, newMap);
+                    }
+                }
+            }
+        }
+        console.log("After Calc Message Count: ", unreadMessageCount);
+        setUnreadMessageCountMap(unreadMessageCount);
+    };
+
+    useEffect(() => {
         if (user && isLoaded) {
             fetchData().finally(() => setIsLoading(false));
         }
     }, [user, isLoaded]);
+
+    useEffect(() => {
+        if (servers.length > 0 && notifications.length > 0 && profile) {
+            handleCalcUnreadMessages();
+        }
+    }, [servers, notifications, profile, activeChannel.current]);
 
     if (isAuthPage) {
         return children;
@@ -269,6 +337,28 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             ];
 
             return cloneConversations;
+        });
+    };
+
+    const handleUpdatedNotifications = (data: INotification) => {
+        console.log("Handle Updated Notifications: ", data);
+        setNotifications((prev) => {
+            const newArray = [...prev];
+
+            const existingNotifications = newArray.find(
+                (n) =>
+                    n.profileId === data.profileId &&
+                    n.channel_id === data.channel_id
+            );
+
+            if (existingNotifications) {
+                existingNotifications.last_read_at = data.last_read_at;
+                return newArray;
+            }
+
+            newArray.push(data);
+
+            return newArray;
         });
     };
 
@@ -582,7 +672,10 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             value={{
                 servers,
                 conversations,
+                unreadMessageCountMap,
+                activeChannel,
                 profile,
+                handleUpdatedNotifications,
                 isInteracted,
                 setProfile,
                 setServers,

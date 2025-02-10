@@ -17,9 +17,31 @@ export class ChannelReadService {
         },
       },
       update: {
-        last_read_at: new Date(),
+        last_read_at: data.last_read_at,
       },
       create: data,
+      include: {
+        channel: {
+          include: {
+            server: true,
+          },
+        },
+      },
+    });
+  }
+
+  public async getChannelReadByProfleId(profileId: string) {
+    return await this.db.userChannelRead.findMany({
+      where: {
+        profileId,
+      },
+      include: {
+        channel: {
+          include: {
+            server: true,
+          },
+        },
+      },
     });
   }
 }

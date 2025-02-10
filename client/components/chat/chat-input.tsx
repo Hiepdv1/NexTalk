@@ -89,6 +89,7 @@ const ChatInput = ({
         channelId: string
     ) => {
         if (!sendMessage || !user) return;
+        console.log("Send Channel message: ", conversation);
         addPendingMessage({
             channelId,
             timestamp,

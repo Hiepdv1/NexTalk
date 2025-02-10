@@ -182,7 +182,6 @@ export class ServerService {
                 },
                 take: 12,
               },
-              userChannelRead: true,
             },
           },
           members: {
@@ -378,7 +377,68 @@ export class ServerService {
     const server = await this.databaseService.server.findUnique({
       where: { inviteCode },
       include: {
-        members: true,
+        channels: {
+          include: {
+            messages: {
+              include: {
+                member: {
+                  include: {
+                    profile: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: 'desc',
+              },
+              take: 12,
+            },
+          },
+        },
+        members: {
+          include: {
+            profile: true,
+            conversationsInitiated: {
+              include: {
+                directMessages: {
+                  include: {
+                    member: {
+                      include: {
+                        profile: true,
+                      },
+                    },
+                  },
+                  take: 12,
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
+              },
+              take: 12,
+            },
+            conversationsReceived: {
+              include: {
+                directMessages: {
+                  include: {
+                    member: {
+                      include: {
+                        profile: true,
+                      },
+                    },
+                  },
+                  take: 12,
+                  orderBy: {
+                    createdAt: 'desc',
+                  },
+                },
+              },
+              take: 12,
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 12,
+        },
       },
     });
 

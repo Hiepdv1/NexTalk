@@ -4,9 +4,10 @@ import ChatHeader from "@/components/chat/chat-header";
 import ChatInput from "@/components/chat/chat-input";
 import ChatMessage from "@/components/chat/chat-message";
 import { useData } from "@/components/providers/data-provider";
+import { useSocketEvents } from "@/components/providers/socket-event-provider";
 import { useSocket } from "@/components/providers/socket-provider";
 import VideoCall from "@/components/videoCall/video-call";
-import { channelType } from "@/interfaces";
+import { channelType, IChannel } from "@/interfaces";
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect } from "react";
 
@@ -18,8 +19,16 @@ interface IChannelIdPageProps {
 }
 
 const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
-    const { servers, profile, conversations, isInteracted } = useData();
+    const {
+        servers,
+        profile,
+        conversations,
+        isInteracted,
+        handleUpdatedNotifications,
+        activeChannel,
+    } = useData();
     const { sendMessage } = useSocket();
+    const { addListener } = useSocketEvents();
     const router = useRouter();
 
     const server = servers.find((server) => server.id === params.serverId);
@@ -48,8 +57,18 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
     }, []);
 
     useEffect(() => {
-        sendMessage("channel-read", { channelId: params.channelId }, "POST");
-    }, []);
+        activeChannel.current = channel.id;
+
+        sendMessage(
+            "channel-read",
+            { channelId: params.channelId, serverId: params.serverId },
+            "POST"
+        );
+
+        return () => {
+            activeChannel.current = null;
+        };
+    }, [sendMessage]);
 
     if (channel.type === channelType.VIDEO && !isInteracted.current) {
         return null;
