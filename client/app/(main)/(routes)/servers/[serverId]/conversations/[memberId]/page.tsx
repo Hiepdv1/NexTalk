@@ -19,10 +19,17 @@ interface IMemberIdPageProps {
 }
 
 const MemberIdPage = ({ params }: IMemberIdPageProps) => {
-    const { profile, servers, handleAddConversation, conversations } =
-        useData();
+    const {
+        profile,
+        servers,
+        handleAddConversation,
+        conversations,
+        activeConversation,
+    } = useData();
     const { addListener, removeListener } = useSocketEvents();
     const { sendMessage } = useSocket();
+
+    if (!sendMessage) return;
 
     const server = servers.find((server) => server.id === params.serverId);
     if (!server) return;
@@ -87,6 +94,30 @@ const MemberIdPage = ({ params }: IMemberIdPageProps) => {
             );
         };
     }, [conversation]);
+
+    useEffect(() => {
+        if (conversation) {
+            activeConversation.current = conversation.id;
+        }
+
+        return () => {
+            activeConversation.current = null;
+        };
+    }, [conversation, activeConversation.current]);
+
+    useEffect(() => {
+        if (conversation) {
+            sendMessage(
+                "conversation-read",
+                {
+                    serverId: params.serverId,
+                    conversationId: conversation.id,
+                    memberId: currentMember.id,
+                },
+                "POST"
+            );
+        }
+    }, [conversation, currentMember, params.serverId]);
 
     if (!conversation) return;
 

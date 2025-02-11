@@ -14,7 +14,8 @@ import { ModalType, useModal } from "@/hooks/use-modal-store";
 import NavigationSidebarSkeleton from "../loadding/NavigationSidebarSkeleton";
 import { useData } from "../providers/data-provider";
 const NavigationSideBar = () => {
-    const { servers, unreadMessageCountMap } = useData();
+    const { servers, unreadMessageCountMap, unreadDirectMessageCountMap } =
+        useData();
     return (
         <div className="space-x-4 flex flex-col items-center bg-[#E3E5E8] h-full text-primary w-full dark:bg-[#1E1F22]">
             <NavigationAction />
@@ -22,12 +23,15 @@ const NavigationSideBar = () => {
             <ScrollArea className="flex-1 w-full !m-0 px-0">
                 {servers.map((server) => {
                     const notification = unreadMessageCountMap.get(server.id);
+                    const notificationCOnversation =
+                        unreadDirectMessageCountMap.get(server.id);
 
-                    const totoalUnread = notification
-                        ?.values()
-                        .reduce((acc, value) => {
-                            return (acc += value);
-                        }, 0);
+                    const totoalUnread = [
+                        ...(notification?.values() || []),
+                        ...(notificationCOnversation?.values() || []),
+                    ].reduce((acc, value) => {
+                        return (acc += value);
+                    }, 0);
                     console.log("Totoal Unread Server: ", totoalUnread);
 
                     return (

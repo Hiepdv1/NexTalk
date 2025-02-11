@@ -9,6 +9,7 @@ import { useAuth } from "@clerk/nextjs";
 import {
     createContext,
     MutableRefObject,
+    useCallback,
     useContext,
     useEffect,
     useRef,
@@ -110,7 +111,7 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
                 socket.current.disconnect();
             }
         };
-    }, [isSignedIn, getToken, socket]);
+    }, [isSignedIn, getToken]);
 
     function handleStunServers(message: string) {
         const decryptMessage = JSON.parse(decrypt(message)) as StunServer[];
@@ -118,52 +119,56 @@ const SocketProvider = ({ children }: ISocketProviderProps) => {
         console.log("Stun Server: ", decryptMessage);
     }
 
-    const sendMessage = (
-        event: string,
-        message: any,
-        methodWs?: "GET" | "POST",
-        query?: any
-    ) => {
-        if (!socket.current || !isConnected) {
-            console.error("Socket instance not found");
-            return;
-        }
+    const sendMessage = useCallback(
+        (
+            event: string,
+            message: any,
+            methodWs?: "GET" | "POST",
+            query?: any
+        ) => {
+            if (!socket.current || !isConnected) {
+                console.error("Socket instance not found");
+                return;
+            }
 
-        if (isSignedIn) {
-            console.log("Socket sendding");
-            const nonce = generateNonce();
-            const requestId = generateRequestId();
-            const timestamp = new Date().getTime();
-            const userAgent = navigator.userAgent;
-            const token = getCookie("__session");
+            if (isSignedIn) {
+                console.log("Socket sendding");
+                const nonce = generateNonce();
+                const requestId = generateRequestId();
+                const timestamp = new Date().getTime();
+                const userAgent = navigator.userAgent;
+                const token = getCookie("__session");
 
-            const encryptMesssage = encrypt(JSON.stringify(message));
+                const encryptMesssage = encrypt(JSON.stringify(message));
 
-            const messageParam = `url:${event}|body:${encryptMesssage}|nonce:${nonce}|timestamp:${timestamp}|requestId:${requestId}|userAgent:${userAgent}`;
+                const messageParam = `url:${event}|body:${encryptMesssage}|nonce:${nonce}|timestamp:${timestamp}|requestId:${requestId}|userAgent:${userAgent}`;
 
-            const signature = generateHmac(messageParam);
+                const signature = generateHmac(messageParam);
 
-            const payload = {
-                message: encryptMesssage,
-                headers: {
-                    "x-request-nonce": nonce,
-                    "x-timestamp": timestamp,
-                    "x-request-id": requestId,
-                    "x-client-id": process.env.NEXT_PUBLIC_SIGNATURE_CLIENT_ID,
-                    "x-user-agent": userAgent,
-                    "x-signature": signature,
-                    "x-socket-url": event,
-                },
-                authorization: `Bearer ${token}`,
-                method: methodWs || "GET",
-                query,
-            };
+                const payload = {
+                    message: encryptMesssage,
+                    headers: {
+                        "x-request-nonce": nonce,
+                        "x-timestamp": timestamp,
+                        "x-request-id": requestId,
+                        "x-client-id":
+                            process.env.NEXT_PUBLIC_SIGNATURE_CLIENT_ID,
+                        "x-user-agent": userAgent,
+                        "x-signature": signature,
+                        "x-socket-url": event,
+                    },
+                    authorization: `Bearer ${token}`,
+                    method: methodWs || "GET",
+                    query,
+                };
 
-            socket.current.emit(event, payload);
-        } else {
-            console.error("Socket is not connected");
-        }
-    };
+                socket.current.emit(event, payload);
+            } else {
+                console.error("Socket is not connected");
+            }
+        },
+        [socket.current, isConnected]
+    );
 
     return (
         <SocketContext.Provider

@@ -19,14 +19,8 @@ interface IChannelIdPageProps {
 }
 
 const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
-    const {
-        servers,
-        profile,
-        conversations,
-        isInteracted,
-        handleUpdatedNotifications,
-        activeChannel,
-    } = useData();
+    const { servers, profile, conversations, isInteracted, activeChannel } =
+        useData();
     const { sendMessage } = useSocket();
     const { addListener } = useSocketEvents();
     const router = useRouter();
@@ -68,7 +62,7 @@ const ChannelIdPage = ({ params }: IChannelIdPageProps) => {
         return () => {
             activeChannel.current = null;
         };
-    }, [sendMessage]);
+    }, [sendMessage, params.channelId, params.serverId]);
 
     if (channel.type === channelType.VIDEO && !isInteracted.current) {
         return null;

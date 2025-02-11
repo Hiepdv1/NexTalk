@@ -26,14 +26,18 @@ import { usePathname } from "next/navigation";
 import { decrypt } from "@/utility/app.utility";
 import LoadingScreen from "../loadding/loadingScreen";
 import { exit } from "process";
+import { IConversationNotification } from "@/interfaces/conversation.interface";
 
 interface IDataProvider {
     servers: IServer[];
     conversations: IConversation[];
     profile: IProfile | null;
     isInteracted: React.MutableRefObject<boolean>;
+
     unreadMessageCountMap: Map<string, Map<string, number>>;
+    unreadDirectMessageCountMap: Map<string, Map<string, number>>;
     activeChannel: React.MutableRefObject<string | null>;
+    activeConversation: React.MutableRefObject<string | null>;
 
     setProfile: (data: IProfile) => void;
     setServers: React.Dispatch<React.SetStateAction<IServer[]>>;
@@ -59,9 +63,13 @@ interface IDataProvider {
         content: string;
     }) => void;
 
+    handleUpdatedConversationNotifications: (
+        data: IConversationNotification
+    ) => void;
+
     handleUpdateChannel: (data: IChannel) => void;
     handleUpdateServer: (data: IServer) => void;
-    handleUpdatedNotifications: (data: INotification) => void;
+    handleUpdatedChannelNotifications: (data: INotification) => void;
 
     handleDeleteServer: (serverId: string) => void;
     handleDeleteChannel: (data: {
@@ -110,11 +118,17 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
     const [servers, setServers] = useState<IServer[]>([]);
     const [conversations, setConversations] = useState<IConversation[]>([]);
     const [notifications, setNotifications] = useState<INotification[]>([]);
+    const [conversationNotifications, setConversationNotifications] = useState<
+        IConversationNotification[]
+    >([]);
     const [unreadMessageCountMap, setUnreadMessageCountMap] = useState<
         Map<string, Map<string, number>>
     >(new Map());
+    const [unreadDirectMessageCountMap, setUnreadDirectMessageCountMap] =
+        useState<Map<string, Map<string, number>>>(new Map());
 
     const activeChannel = useRef<string | null>(null);
+    const activeConversation = useRef<string | null>(null);
 
     const isInteracted = useRef<boolean>(false);
 
@@ -135,23 +149,29 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
 
         const requestNotifications = api.get("/channel-notifications");
 
+        const requestConversationNotifications = api.get(
+            "/conversation-notifications"
+        );
+
         const requestServers = api.get("/servers");
 
-        const [resProfile, resServersData, resNotifications] =
-            await Promise.all([
-                requestProfile,
-                requestServers,
-                requestNotifications,
-            ]);
+        const [
+            resProfile,
+            resServersData,
+            resNotifications,
+            resConversationNotification,
+        ] = await Promise.all([
+            requestProfile,
+            requestServers,
+            requestNotifications,
+            requestConversationNotifications,
+        ]);
 
         const data = resServersData.data as string;
 
         const { servers } = JSON.parse(decrypt(data)) as {
             servers: Array<IServer>;
         };
-
-        console.log("Initital fetched servers: ", servers);
-        console.log("Initial fetched Notifications: ", resNotifications);
 
         const serverIds = servers.map((server) => server.id);
 
@@ -167,6 +187,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         setServers((servers as any) || []);
         setNotifications((resNotifications.data as any) || []);
         setProfile(resProfile.data as any);
+        setConversationNotifications(resConversationNotification.data || []);
     };
 
     const handleCalcUnreadMessages = () => {
@@ -177,7 +198,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             );
             if (server) {
                 const channel = server.channels.find(
-                    (children) => children.id === notification.channel.id
+                    (c) => c.id === notification.channel.id
                 );
 
                 if (channel && activeChannel.current !== channel.id) {
@@ -206,8 +227,54 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 }
             }
         }
-        console.log("After Calc Message Count: ", unreadMessageCount);
-        setUnreadMessageCountMap(unreadMessageCount);
+        setUnreadMessageCountMap(unreadMessageCount || []);
+    };
+
+    const handleCalcUnreadDirectMessages = () => {
+        const unreadDirectMessageCount = new Map<string, Map<string, number>>();
+        for (const notification of conversationNotifications) {
+            const conversation = conversations.find(
+                (c) => c.id === notification.conversationId
+            );
+
+            if (
+                conversation &&
+                activeConversation.current !== conversation.id
+            ) {
+                const totalUnreadDirectMessages =
+                    conversation.directMessages.reduce((acc, message) => {
+                        if (
+                            new Date(message.createdAt) >
+                                new Date(notification.last_read_at) &&
+                            notification.memberId !== message.memberId
+                        ) {
+                            return (acc += 1);
+                        }
+                        return acc;
+                    }, 0);
+                const existingServer = unreadDirectMessageCount.get(
+                    notification.serverId
+                );
+                if (existingServer) {
+                    existingServer.set(
+                        notification.conversationId,
+                        totalUnreadDirectMessages
+                    );
+                } else {
+                    const newMap = new Map<string, number>();
+                    newMap.set(
+                        notification.conversationId,
+                        totalUnreadDirectMessages
+                    );
+                    unreadDirectMessageCount.set(notification.serverId, newMap);
+                }
+            }
+        }
+        console.log(
+            "After Calc Direct Message Count: ",
+            unreadDirectMessageCount
+        );
+        setUnreadDirectMessageCountMap(unreadDirectMessageCount || []);
     };
 
     useEffect(() => {
@@ -221,6 +288,12 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             handleCalcUnreadMessages();
         }
     }, [servers, notifications, profile, activeChannel.current]);
+
+    useEffect(() => {
+        if (conversations.length > 0 && notifications.length > 0) {
+            handleCalcUnreadDirectMessages();
+        }
+    }, [conversations, conversationNotifications, activeConversation.current]);
 
     if (isAuthPage) {
         return children;
@@ -340,8 +413,28 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
         });
     };
 
-    const handleUpdatedNotifications = (data: INotification) => {
-        console.log("Handle Updated Notifications: ", data);
+    const handleUpdatedConversationNotifications = (
+        data: IConversationNotification
+    ) => {
+        setConversationNotifications((prev) => {
+            const newArray = [...prev];
+
+            const existingConversation = newArray.find(
+                (n) => n.id === data.conversationId
+            );
+
+            if (existingConversation) {
+                existingConversation.last_read_at = data.last_read_at;
+                return newArray;
+            }
+
+            newArray.push(data);
+
+            return newArray;
+        });
+    };
+
+    const handleUpdatedChannelNotifications = (data: INotification) => {
         setNotifications((prev) => {
             const newArray = [...prev];
 
@@ -357,6 +450,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
             }
 
             newArray.push(data);
+            console.log("Updated notification: ", newArray);
 
             return newArray;
         });
@@ -401,6 +495,7 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
 
             if (!data.messages) data.messages = [];
             if (!data.members) data.members = [...server.members];
+            data.userChannelRead = [];
 
             server.channels.push(data);
 
@@ -483,7 +578,6 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 (server) => server.id === serverId
             );
             if (!server) {
-                console.log("Server not found");
                 return prevServers;
             }
 
@@ -491,7 +585,6 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 (channel) => channel.id === channelId
             );
             if (!channel) {
-                console.log("Channel not found");
                 return prevServers;
             }
 
@@ -499,7 +592,6 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 (message) => message.id === messageId
             );
             if (!message) {
-                console.log("message not found");
                 return prevServers;
             }
 
@@ -674,8 +766,11 @@ const DataProvider: React.FC<{ children: React.ReactNode }> = ({
                 conversations,
                 unreadMessageCountMap,
                 activeChannel,
+                activeConversation,
+                unreadDirectMessageCountMap,
+                handleUpdatedConversationNotifications,
                 profile,
-                handleUpdatedNotifications,
+                handleUpdatedChannelNotifications,
                 isInteracted,
                 setProfile,
                 setServers,

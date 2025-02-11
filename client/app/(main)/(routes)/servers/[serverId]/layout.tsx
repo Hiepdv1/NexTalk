@@ -17,16 +17,9 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
         handleUpdateChannel,
         handleDeleteChannel,
         handleAddNewMemberInServer,
-        handleRemoveMemberInServer,
         handleOnChangeRoleMember,
     } = useData();
     const { addListener } = useSocketEvents();
-
-    const handleUpdateNewMember = (data: any) => {
-        const newMember = JSON.parse(decrypt(data)) as IMember;
-        console.log(newMember);
-        handleAddNewMemberInServer(newMember);
-    };
 
     const onUpdateChannel = (data: any) => {
         const channel = JSON.parse(decrypt(data));
@@ -41,34 +34,12 @@ const ServerIdLayout = ({ children, params }: IServerIdLayout) => {
         });
     };
 
-    const handleMemberUpdate = (data: any) => {
-        const decryptData = JSON.parse(decrypt(data));
-        handleRemoveMemberInServer({
-            serverId: params.serverId,
-            memberId: decryptData.id,
-        });
-    };
-
     const handleOnUpdateRoleMember = (data: any) => {
         const decryptData = JSON.parse(decrypt(data));
         handleOnChangeRoleMember(decryptData);
     };
 
     useEffect(() => {
-        addListener(
-            `server:${params.serverId}:member:kick`,
-            handleMemberUpdate
-        );
-        addListener(
-            `server:${params.serverId}:member:leave`,
-            handleMemberUpdate
-        );
-
-        addListener(
-            `server:${params.serverId}:members:update`,
-            handleUpdateNewMember
-        );
-
         addListener("channel:created:update", onUpdateChannel);
         addListener("channel:deleted:update", onDeleteChannel);
 

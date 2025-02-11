@@ -12,6 +12,7 @@ import { decrypt } from "@/utility/app.utility";
 import {
     ChannelMessageUpdatedGlobal,
     IChannel,
+    IDirectMessage,
     IMember,
     MessageType,
 } from "@/interfaces";
@@ -19,6 +20,7 @@ import { useData } from "./data-provider";
 import { usePendingMessages } from "./pending-message";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { IConversationNotification } from "@/interfaces/conversation.interface";
 
 interface SocketEventContextType {
     addListener: (event: string, callback: (data: any) => void) => void;
@@ -66,7 +68,12 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         setMessage,
         servers,
         activeChannel,
-        handleUpdatedNotifications,
+        handleUpdatedChannelNotifications,
+        handleUpdatedConversationNotifications,
+        activeConversation,
+        handleRemoveMemberInServer,
+        profile,
+        handleAddNewMemberInServer,
     } = useData();
 
     const { removePendingMessageByTimestamp } = usePendingMessages();
@@ -116,7 +123,27 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
     };
 
     const handleIncomingDirectMessage = (data: string) => {
-        const message = JSON.parse(decrypt(data));
+        const message = JSON.parse(decrypt(data)) as IDirectMessage & {
+            member: any;
+            timestamp: number;
+            serverId: string;
+        };
+
+        if (
+            activeConversation.current === message.conversationId &&
+            sendMessage
+        ) {
+            sendMessage(
+                "conversation-read",
+                {
+                    conversationId: message.conversationId,
+                    serverId: message.serverId,
+                    memberId: message.memberId,
+                },
+                "POST"
+            );
+            console.log("Sending message channel-read ");
+        }
 
         console.log("Message data convcersation: ", message);
         handelRemovePendingDirectMessages(message.timestamp);
@@ -185,12 +212,12 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         const { serverId, channelId, timestamp, ...rest } = JSON.parse(
             decrypt(message)
         );
-        setMessage(serverId, channelId, rest);
-        removePendingMessageByTimestamp(timestamp);
-        if (activeChannel.current && sendMessage) {
+        if (activeChannel.current === channelId && sendMessage) {
             sendMessage("channel-read", { channelId, serverId }, "POST");
             console.log("Sending message channel-read ");
         }
+        setMessage(serverId, channelId, rest);
+        removePendingMessageByTimestamp(timestamp);
     };
 
     const handleUpdatedChannelReaded = (data: {
@@ -201,11 +228,36 @@ export const SocketEventProvider: React.FC<SocketEventProviderProps> = ({
         channel_id: string;
     }) => {
         console.log("Channel readed: ", data);
-        handleUpdatedNotifications(data);
+        handleUpdatedChannelNotifications(data);
+    };
+
+    const handleConversationReaded = (data: IConversationNotification) => {
+        console.log("Conversation readed: ", data);
+        handleUpdatedConversationNotifications(data);
+    };
+
+    const handleMemberUpdate = (data: any) => {
+        const decryptData = JSON.parse(decrypt(data));
+        handleRemoveMemberInServer({
+            serverId: decryptData.serverId,
+            memberId: decryptData.id,
+        });
+        if (decryptData.profileId === profile?.id) {
+            window.location.href = "/";
+        }
+    };
+
+    const handleUpdateNewMember = (data: any) => {
+        const newMember = JSON.parse(decrypt(data)) as IMember;
+        console.log(newMember);
+        handleAddNewMemberInServer(newMember);
     };
 
     const setupListeningGlobal = () => {
+        addListener("server:new:members:update", handleUpdateNewMember);
+        addListener("server:member:kick:global", handleMemberUpdate);
         addListener("channel-readed", handleUpdatedChannelReaded);
+        addListener("conversation-readed", handleConversationReaded);
         addListener("chat:message:update:global", handleUpdateMessageGlobal);
         addListener("chat:message:channel:global", handleAddMessageChannel);
         addListener(

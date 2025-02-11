@@ -10,4 +10,7 @@ export const queues: RegisterQueueAsyncOptions[] = [
   {
     name: 'ChannelRead',
   },
+  {
+    name: 'ConversationRead',
+  },
 ];

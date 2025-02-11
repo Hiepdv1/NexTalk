@@ -8,6 +8,14 @@ export interface Profile {
     userId: string;
 }
 
+export interface IConversationNotification {
+    id?: string;
+    last_read_at: Date;
+    serverId: string;
+    memberId: string;
+    conversationId: string;
+}
+
 export interface Member {
     id: string;
     role: MemberRole;

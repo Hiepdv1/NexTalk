@@ -43,3 +43,17 @@ export class CreateDirectMessageDto {
   @IsString()
   otherMemberId: string;
 }
+
+export class ConversationReadDto {
+  @IsNotEmpty()
+  @IsString()
+  memberId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  conversationId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  serverId: string;
+}

@@ -77,8 +77,17 @@ export class ChannelController {
     let server = serverCache;
 
     if (!server) {
-      server = await this.serverService.getServerById(serverId);
-      if (!server) throw new NotFoundException('The server does not exist');
+      const existingServer = await this.serverService.getServerById(serverId);
+      if (!existingServer)
+        throw new NotFoundException('The server does not exist');
+
+      server = {
+        ...existingServer,
+        members: existingServer.members.map(
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          ({ conversationsInitiated, conversationsReceived, ...rest }) => rest
+        ),
+      };
     }
 
     const serverUpdated = await this.channelService.CreateChannel(

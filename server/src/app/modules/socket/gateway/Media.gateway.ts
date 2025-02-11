@@ -14,7 +14,6 @@ import { AuthWsMiddleware } from 'src/common/middlewares/AuthWs.middleware';
 import {
   BadRequestException,
   HttpException,
-  Inject,
   Logger,
   NotFoundException,
   OnModuleInit,
@@ -31,7 +30,6 @@ import { AppHelperService } from 'src/common/helpers/app.helper';
 import { ConfigService } from '@nestjs/config';
 import { ConversationService } from '../../conversation/services/conversation.service';
 import { ServerCacheService } from '../../server/services/serverCache.service';
-import { NotFoundError } from 'rxjs';
 import { ConversationCacheService } from '../../conversation/services/conversationCache.service';
 import { MessageType, Profile } from '@prisma/client';
 import { DecryptDataInterceptor } from 'src/providers/interceptors/DecryptData.interceptor';
@@ -67,8 +65,9 @@ import {
   MessageChannelModifyDto,
   MessageModifyMethod,
 } from '../dto/channel.dto';
-import { Queue, QueueEvents } from 'bullmq';
+import { Queue } from 'bullmq';
 import {
+  ConversationReadDto,
   CreateDirectMessageDto,
   FetchConversationDto,
 } from '../dto/conversation.dto';
@@ -119,10 +118,9 @@ export class MediaGateway
     private readonly redisCache: RedisCacheService,
     @InjectQueue('ChannelMessage') private readonly channelMessageQueue: Queue,
     @InjectQueue('DirectMessage') private readonly directMessageQueue: Queue,
+    @InjectQueue('ConversationRead')
+    private readonly conversationReadQueue: Queue,
     @InjectQueue('ChannelRead') private readonly channelReadQueue: Queue,
-    @Inject('CHANNEL_READ_QUEUE_EVENTS')
-    private readonly channelReadQueueEvents: QueueEvents,
-
     private readonly callService: CallService
   ) {
     this.SECRET_KEY = configService.get<string>('HASH_MESSAGE_SECRET_KEY');
@@ -407,25 +405,30 @@ export class MediaGateway
     try {
       const { cursor, serverId, channelId } = values;
 
-      if (!serverId || !channelId)
-        throw new BadRequestException(
-          'The serverId and channelId are required'
-        );
-
-      console.log('Fetch message conversation Cursor: ', cursor);
-
       const serverCache =
         await this.serverCacheService.getServerCache(serverId);
 
       let server = serverCache;
-      if (!server) {
-        server = await this.serverService.getServerById(serverId);
-        if (!server) throw new NotFoundError('The server does not exist');
+      if (!serverCache) {
+        const existingServer = await this.serverService.getServerById(serverId);
+        if (!existingServer)
+          throw new WsNotFoundException('The server does not exist');
+
+        server = {
+          ...existingServer,
+          members: existingServer.members.map(
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            ({ conversationsInitiated, conversationsReceived, ...rest }) => rest
+          ),
+        };
+
         await this.serverCacheService.setAndOverrideServerCache(
           serverId,
           server
         );
       }
+
+      console.log('Server Cache FetCh messages: ', server);
 
       const channel = server.channels.find(
         (channel) => channel.id === channelId
@@ -758,6 +761,92 @@ export class MediaGateway
   }
 
   @UseGuards(WsCombinedGuard)
+  @SubscribeMessage('conversation-read')
+  public async handleConversationRead(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody(new DecryptAndValidatePipe(ConversationReadDto))
+    values: ConversationReadDto
+  ) {
+    const { conversationId, memberId, serverId } = values;
+
+    const conversations =
+      await this.conversationCacheService.getConversationCache({ serverId });
+    let conversationCache;
+
+    if (conversations) {
+      conversationCache = conversations.find((c) => c.id === conversationId);
+
+      if (!conversationCache) {
+        conversationCache =
+          await this.conversationService.getConversationByid(conversationId);
+
+        if (!conversationCache)
+          throw new WsNotFoundException(
+            `The conversationId ${conversationId} does not exist`
+          );
+
+        await this.conversationCacheService.setAndOverrideConversationCache(
+          {
+            serverId,
+          },
+          [...conversations, conversationCache]
+        );
+      }
+    } else {
+      const conversation =
+        await this.conversationService.getConversationByid(conversationId);
+
+      if (!conversation)
+        throw new WsNotFoundException(
+          `The conversationId ${conversationId} does not exist`
+        );
+      await this.conversationCacheService.setAndOverrideConversationCache(
+        {
+          serverId,
+        },
+        [conversation]
+      );
+      conversationCache = conversation;
+    }
+
+    const existingMemberInConversations =
+      conversationCache.memberOneId === memberId ||
+      conversationCache.memberTwoId === memberId;
+
+    if (!existingMemberInConversations)
+      throw new WsNotFoundException(
+        `The memberId "${memberId}" does not exist in the conversation`
+      );
+
+    const last_read_at = new Date();
+
+    const payload = {
+      memberId,
+      serverId,
+      conversationId,
+      last_read_at,
+    };
+
+    this.conversationReadQueue.add(
+      'ConversationRead',
+      {
+        values: payload,
+      },
+      {
+        removeOnComplete: true,
+        removeOnFail: 10,
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+      }
+    );
+
+    socket.emit('conversation-readed', payload);
+  }
+
+  @UseGuards(WsCombinedGuard)
   @SubscribeMessage('channel-read')
   public async handleChannelRead(
     @ConnectedSocket() socket: Socket,
@@ -776,20 +865,28 @@ export class MediaGateway
     if (!server) {
       const existingServer = await this.serverService.getServerById(serverId);
 
-      if (!server)
+      if (!existingServer)
         throw new WsNotFoundException(
-          `The serverId ${server.id} does not exist`
+          `The serverId ${serverId} does not exist`
         );
 
-      this.serverCacheService.setAndOverrideServerCache(serverId, {
-        ...server,
+      server = {
+        ...existingServer,
         members: existingServer.members.map(
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           ({ conversationsInitiated, conversationsReceived, ...rest }) => rest
         ),
-      });
-      server = existingServer;
+      };
+
+      await this.serverCacheService.setAndOverrideServerCache(serverId, server);
     }
+
+    const channel = server.channels.find((c) => c.id === channelId);
+
+    if (!channel)
+      throw new WsNotFoundException(
+        `The channelId: ${channelId} does not exist`
+      );
 
     const last_read_at = new Date();
 
@@ -797,7 +894,6 @@ export class MediaGateway
       profileId: profile.id,
       channel_id: channelId,
       last_read_at,
-      channel: server.channels,
     };
 
     this.channelReadQueue.add(
@@ -816,7 +912,10 @@ export class MediaGateway
       }
     );
 
-    socket.emit('channel-readed', payload);
+    socket.emit('channel-readed', {
+      ...payload,
+      channel,
+    });
   }
 
   @UseGuards(WsCombinedGuard)

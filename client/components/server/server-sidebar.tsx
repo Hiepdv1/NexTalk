@@ -37,7 +37,11 @@ const roleIconMap = {
 const ServerSideBar = ({ serverId }: { serverId: string }) => {
     const { userId } = useAuth();
     const { servers } = useData();
-    const { unreadMessageCountMap } = useData();
+    const {
+        unreadMessageCountMap,
+        unreadDirectMessageCountMap,
+        conversations,
+    } = useData();
     const [voiceStatus, setVoiceStatus] = useState("Voice Connected");
     const [isVoiceMuted, setIsVoiceMuted] = useState(false);
 
@@ -58,8 +62,6 @@ const ServerSideBar = ({ serverId }: { serverId: string }) => {
     );
 
     if (!currentUser) return null;
-
-    console.log("List Members: ", members);
 
     return (
         <div className="flex flex-col w-full h-full text-primary dark:bg-[#2B2D31] bg-[#F2F3F5]">
@@ -185,13 +187,45 @@ const ServerSideBar = ({ serverId }: { serverId: string }) => {
                                 server={serverData}
                             />
                             <div className="mt-1 space-y-0.5">
-                                {members.map((member) => (
-                                    <ServerMember
-                                        key={member.id}
-                                        isOnline={member.isOnline}
-                                        member={member as any}
-                                    />
-                                ))}
+                                {members.map((member) => {
+                                    const serverUnread =
+                                        unreadDirectMessageCountMap.get(
+                                            member.serverId
+                                        );
+
+                                    console.log(
+                                        "Server Unread Direct Message Count: ",
+                                        serverUnread
+                                    );
+
+                                    const conversation = conversations.find(
+                                        (conversation) => {
+                                            return (
+                                                (conversation.memberOneId ===
+                                                    member.id ||
+                                                    conversation.memberTwoId ===
+                                                        member.id) &&
+                                                (conversation.memberOneId ===
+                                                    currentUser.id ||
+                                                    conversation.memberTwoId ===
+                                                        currentUser.id)
+                                            );
+                                        }
+                                    );
+
+                                    const totalUnread = conversation?.id
+                                        ? serverUnread?.get(conversation.id)
+                                        : 0 || 0;
+
+                                    return (
+                                        <ServerMember
+                                            key={member.id}
+                                            isOnline={member.isOnline}
+                                            member={member as any}
+                                            totalUnread={totalUnread}
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

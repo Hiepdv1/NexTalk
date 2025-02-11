@@ -379,10 +379,7 @@ export class ServerController {
       this.SECRET_KEY
     );
 
-    this.mediaGateway.server.emit(
-      `server:${newMember.serverId}:members:update`,
-      encryptData
-    );
+    this.mediaGateway.server.emit('server:new:members:update', encryptData);
 
     return addToMember;
   }
@@ -472,6 +469,8 @@ export class ServerController {
 
     let server = serverCache;
 
+    let profileOtherMember;
+
     if (!server) {
       server = await this.serverService.getServerById(query.serverId);
       if (!server) throw new NotFoundException('The server does not exist');
@@ -479,7 +478,10 @@ export class ServerController {
         query.serverId,
         server
       );
+      profileOtherMember = server.members.find((m) => m.id === query.memberId);
     } else {
+      profileOtherMember = server.members.find((m) => m.id === query.memberId);
+
       const members = server.members.filter(
         (member) => member.id !== query.memberId
       );
@@ -493,14 +495,15 @@ export class ServerController {
     }
 
     const encryptData = AppHelperService.encrypt(
-      JSON.stringify({ id: query.memberId }),
+      JSON.stringify({
+        id: query.memberId,
+        serverId: query.serverId,
+        profileId: profileOtherMember.profileId,
+      }),
       this.SECRET_KEY
     );
 
-    this.mediaGateway.server.emit(
-      `server:${server.id}:member:kick`,
-      encryptData
-    );
+    this.mediaGateway.server.emit('server:member:kick:global', encryptData);
 
     return {
       statusCode: 200,

@@ -4,7 +4,7 @@ import { ServerWithRelations } from '../../auth/entities/auth.entity';
 
 @Injectable()
 export class ServerCacheService {
-  private ttl: number = 3600 * 24; /// 1 days;
+  private ttl: number = 3600 * 1; /// 3h;
 
   constructor(private readonly cacheManager: RedisCacheService) {}
 

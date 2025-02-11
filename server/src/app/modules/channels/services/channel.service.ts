@@ -49,7 +49,9 @@ export class ChannelService {
           },
         },
       },
-      select: { channels: { orderBy: { createdAt: 'desc' }, take: 1 } },
+      select: {
+        channels: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
     });
 
     return channel;

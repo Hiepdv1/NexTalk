@@ -13,6 +13,7 @@ import {
     ResICECandidateConsumer,
     ResICECandidateProducer,
 } from "@/types/mediaStream.type";
+import MemberListButton from "./member-list-button";
 
 interface IVideoCallProps {
     roomId: string;
@@ -1397,7 +1398,8 @@ const VideoCall = ({ roomId, currentProfile, servers }: IVideoCallProps) => {
                     }`}
                 >
                     {isScreenSharing
-                        ? [...consumers.values()]
+                        ? window.innerWidth >= 900 &&
+                          [...consumers.values()]
                               .slice(0, 4)
                               .map((consumerInfo, index) => {
                                   return (
@@ -1439,16 +1441,25 @@ const VideoCall = ({ roomId, currentProfile, servers }: IVideoCallProps) => {
                 ref={controlBarRef}
                 className="hidden z-50 md:flex fixed left-0 right-0 bottom-3 md:relative justify-center items-center my-4"
             >
-                <CallControls
-                    isAudioEnabled={isAudioEnabling}
-                    isVideoEnabled={isVideoEnabling}
-                    isScreenSharing={isScreenSharing}
-                    onShareScreen={toggleScreenSharing}
-                    onToggleAudio={toggleAudio}
-                    onToggleVideo={toggleVideo}
-                    onLeaveRoom={onLeaveRoom}
-                    isScreenBroadcasting={consumerScreens?.isScreenBroadcasting}
-                />
+                <div className="flex justify-center items-center">
+                    <MemberListButton
+                        consumers={[...consumers.values()].map(
+                            ({ streams, ...rest }) => rest
+                        )}
+                    />
+                    <CallControls
+                        isAudioEnabled={isAudioEnabling}
+                        isVideoEnabled={isVideoEnabling}
+                        isScreenSharing={isScreenSharing}
+                        onShareScreen={toggleScreenSharing}
+                        onToggleAudio={toggleAudio}
+                        onToggleVideo={toggleVideo}
+                        onLeaveRoom={onLeaveRoom}
+                        isScreenBroadcasting={
+                            consumerScreens?.isScreenBroadcasting
+                        }
+                    />
+                </div>
             </div>
         </div>
     );

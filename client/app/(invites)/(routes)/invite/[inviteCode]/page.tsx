@@ -71,9 +71,7 @@ const InviteCodePage = ({ params }: IInviteCodePageProps) => {
             const data = res?.data;
             if (!data) return;
 
-            handleUpdateServer(data);
-
-            router.push(`/servers/${serverData.server.id}`);
+            window.location.href = "/";
         } catch (err) {
             console.error("Error adding member to server:", err);
         } finally {

@@ -78,9 +78,9 @@ const CallControls = ({
                 <ActionTooltip
                     label={"This participant is currently sharing their screen"}
                 >
-                    <p className="text-white mx-4 md:w-56 md:h-12 bg-rose-500 rounded-md flex items-center justify-center">
+                    <p className="text-white mx-4 md:w-56 h-12 bg-rose-500 rounded-md flex items-center justify-center px-2">
                         <Monitor className="w-6 h-6 mr-2" />
-                        <span>Screen Sharing Active</span>
+                        <span>Active</span>
                     </p>
                 </ActionTooltip>
             )}
@@ -108,7 +108,9 @@ const CallControls = ({
                                 <DropdownMenuTrigger asChild>
                                     <div className="flex items-center">
                                         <ScreenShareOffIcon className="md:w-6 md:h-6 mr-2" />
-                                        Share screen
+                                        {window.innerWidth >= 900
+                                            ? "Share screen"
+                                            : "Share"}
                                     </div>
                                 </DropdownMenuTrigger>
 

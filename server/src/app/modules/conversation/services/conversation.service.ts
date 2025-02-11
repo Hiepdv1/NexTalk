@@ -13,6 +13,10 @@ export class ConversationService {
       where: {
         id: conversationId,
       },
+      include: {
+        memberOne: true,
+        memberTwo: true,
+      },
     });
   }
 

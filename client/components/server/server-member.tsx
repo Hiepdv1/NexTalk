@@ -10,6 +10,7 @@ import { memo } from "react";
 interface IServerMemberProps {
     member: IResMembers & { profile: IProfile };
     isOnline: boolean;
+    totalUnread?: number;
 }
 
 const roleIconMap = {
@@ -20,7 +21,11 @@ const roleIconMap = {
     [MemberRole.ADMIN]: <ShieldAlert className="w-4 h-4 ml-2 text-rose-500" />,
 };
 
-const ServerMember = ({ member, isOnline }: IServerMemberProps) => {
+const ServerMember = ({
+    member,
+    isOnline,
+    totalUnread,
+}: IServerMemberProps) => {
     const router = useRouter();
     const params = useParams();
 
@@ -52,6 +57,11 @@ const ServerMember = ({ member, isOnline }: IServerMemberProps) => {
                         <div className="absolute right-0 bottom-0 w-3 h-3 z-50">
                             <div className="absolute w-full h-full bg-emerald-500 rounded-full opacity-70 animate-pulse ring-2 ring-white dark:ring-zinc-900 ring-offset-2 ring-offset-white dark:ring-offset-zinc-900" />
                             <div className="absolute w-full h-full bg-emerald-500 rounded-full ring-2 ring-white dark:ring-zinc-900" />
+                        </div>
+                    )}
+                    {!!totalUnread && (
+                        <div className="absolute -top-1 left-0 bg-red-500 text-white text-xs min-w-[18px] h-[18px] rounded-full flex items-center justify-center p-1">
+                            {totalUnread > 99 ? "99+" : totalUnread}
                         </div>
                     )}
                 </div>

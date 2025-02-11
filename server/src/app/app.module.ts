@@ -28,6 +28,7 @@ import { ServerModule } from './modules/server/server.module';
 import { TaskSchedulerModule } from '@src/common/schedule/schedule.module';
 import { BullModule } from './modules/Bull/Bull.module';
 import { ChannelReadModule } from './modules/channelRead/channelRead.module';
+import { ConversationReadModule } from './modules/conversationRead/conversation-read.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ChannelReadModule } from './modules/channelRead/channelRead.module';
     }),
     BullModule,
     TaskSchedulerModule,
+    ConversationReadModule,
     AuthModule,
     ServerModule,
     ChannelReadModule,
